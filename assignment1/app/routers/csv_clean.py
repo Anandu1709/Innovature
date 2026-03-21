@@ -53,10 +53,13 @@ async def clean_csv(
     """
     # ── Find the file in database (must belong to current user) ──
     result = await db.execute(
-        select(UploadedFile).where(
+        select(UploadedFile)
+        .where(
             UploadedFile.original_filename == request.file_name,
             UploadedFile.user_id == current_user.id,
         )
+        .order_by(UploadedFile.upload_time.desc())
+        .limit(1)
     )
     file_record = result.scalar_one_or_none()
 
