@@ -1,0 +1,32 @@
+[
+  {
+    "id": "attn_pos_scaling",
+    "question": "In the Attention is All You Need paper (Transformer), describe how positional encoding is injected and explain what divides the dot products in scaled dot-product attention.",
+    "reference_answer": "The model injects deterministic sinusoidal positional encodings that are added to input embeddings so order is represented without recurrence. Dot products are scaled by dividing by the square root of the key dimension dk to avoid large magnitudes that would push softmax into extremely small gradients.",
+    "doc_hint": "1706.03762_attention_is_all_you_need.pdf"
+  },
+  {
+    "id": "bert_pretrain",
+    "question": "What are the two unsupervised tasks BERT is pre-trained with, and what does MLM mean in that context?",
+    "reference_answer": "BERT is pre-trained with Masked Language Modeling (MLM), where some input tokens are masked and predicted from context, and Next Sentence Prediction (NSP), which classifies whether one sentence follows another. MLM means predicting masked tokens bidirectionally from surrounding context.",
+    "doc_hint": "1810.04805_bert.pdf"
+  },
+  {
+    "id": "seq2seq_translate",
+    "question": "In the LSTM sequence-to-sequence learning paper (Sutskever et al.), what change to the SOURCE sentence word order substantially improves BLEU for English→French translation?",
+    "reference_answer": "They reverse the order of words in the source English sentence before feeding it to the encoder (while generating French in normal left-to-right order), which introduces shorter-range correlations and noticeably improves BLEU.",
+    "doc_hint": "1409.3215_seq2seq.pdf"
+  },
+  {
+    "id": "luong_attn_types",
+    "question": "Luong Pham & Manning compare global vs local attention mechanisms in neural translation; what distinguishes local attention?",
+    "reference_answer": "Local attention focuses on a small window of encoder positions centered around an aligned location for each decoding step rather than distributing attention over every source position globally.",
+    "doc_hint": "1508.04025_luong_attention.pdf"
+  },
+  {
+    "id": "layer_norm_transformer",
+    "question": "Layer Normalization stabilizes neural training; Ba et al.'s LN paper summarizes what LN normalizes compared to Batch Normalization?",
+    "reference_answer": "Layer normalization normalizes the summed inputs to neurons within a layer across features for each sample (instance-normalization style), contrasting with batch normalization that normalizes across the batch dimension for each feature.",
+    "doc_hint": "1607.06450_layer_normalization.pdf"
+  }
+]

@@ -1,0 +1,30 @@
+$ python eval/evaluate_rag.py
+Running RAG + judge over 5 questions
+
+------------------------------------------------------------------------
+id: attn_pos_scaling
+faithfulness: 5 | answer_relevance: 5
+faithfulness_notes: The model output is strictly supported by the retrieval context, with no invented facts absent from context. The model accurately describes how positional encoding is injected and what divides the dot products in scaled dot-product attention.
+relevance_notes: The model output directly answers the user question, providing a clear and concise explanation of how positional encoding is injected and the scaling factor used in scaled dot-product attention.
+------------------------------------------------------------------------
+id: bert_pretrain
+faithfulness: 5 | answer_relevance: 5
+faithfulness_notes: The model output is strictly supported by the retrieval context, accurately describing the two unsupervised tasks BERT is pre-trained with and the meaning of MLM in that context.
+relevance_notes: The model output directly answers the user question, providing a clear and concise explanation of the two tasks and the meaning of MLM.
+------------------------------------------------------------------------
+id: seq2seq_translate
+faithfulness: 5 | answer_relevance: 5
+faithfulness_notes: The model output is strictly supported by the retrieval context, with the exact phrase 'reversing the order of words in the source sentence but not the target sentences' appearing in the context.
+relevance_notes: The model output directly answers the user question, providing the specific change to the source sentence word order that substantially improves BLEU for English→French translation.
+------------------------------------------------------------------------
+id: luong_attn_types
+faithfulness: 5 | answer_relevance: 5
+faithfulness_notes: The model output is strictly supported by the retrieval context, accurately summarizing the key difference between local and global attention mechanisms.
+relevance_notes: The model output directly answers the user question, providing a clear and concise explanation of what distinguishes local attention in neural translation.
+------------------------------------------------------------------------
+id: layer_norm_transformer
+faithfulness: 5 | answer_relevance: 5
+faithfulness_notes: The model output is strictly supported by the retrieval context, accurately summarizing the key differences between layer normalization and batch normalization.
+relevance_notes: The model output directly answers the user question, providing a clear explanation of what layer normalization normalizes compared to batch normalization.
+
+Means — faithfulness: 5.0 | relevance: 5.0

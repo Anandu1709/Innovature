@@ -1,0 +1,29 @@
+# Local secrets / config
+.env
+.env.*
+!.env.example
+
+# Python build/cache
+__pycache__/
+*.pyc
+*.pyo
+*.pyd
+
+# Virtual environments
+.venv/
+venv/
+env/
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+
+# Sample PDF corpus (downloadable via scripts/fetch_sample_pdfs.py)
+data/pdfs/*.pdf
+!data/pdfs/.gitkeep
+
+# Hugging Face / model caches that may appear under the repo
+.cache/
+.huggingface/
