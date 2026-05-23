@@ -1,0 +1,30 @@
+# Environment
+.env
+
+# Python
+venv/
+__pycache__/
+*.pyc
+*.pyo
+
+# Data (too large for git)
+data/raw_pdfs/
+data/raw_html/
+data/images/
+data/chunks/
+
+# Milvus
+milvus_lite.db
+*.db
+
+# Node
+frontend/node_modules/
+frontend/dist/
+
+# IDE
+.vscode/
+.idea/
+
+# OS
+.DS_Store
+Thumbs.db

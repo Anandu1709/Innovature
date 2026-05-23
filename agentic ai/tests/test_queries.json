@@ -1,0 +1,37 @@
+[
+  {
+    "query": "Show Arduino Nano pinout and pin functions",
+    "expected_section": "Pin Configuration",
+    "category": "arduino"
+  },
+  {
+    "query": "What are the SPI communication pins for Arduino Uno?",
+    "expected_section": "SPI",
+    "category": "arduino"
+  },
+  {
+    "query": "How to wire up a light sensor or photoresistor?",
+    "expected_section": "Sensor",
+    "category": "arduino"
+  },
+  {
+    "query": "Where is the debug connector SWD located on Raspberry Pi Pico W?",
+    "expected_section": "Debug connector locations",
+    "category": "raspberry_pi"
+  },
+  {
+    "query": "What are the key wireless features and speed of the RM2 radio module?",
+    "expected_section": "RM2 key features",
+    "category": "raspberry_pi"
+  },
+  {
+    "query": "How do I mount and program a bootloader on ATmega328P?",
+    "expected_section": "Bootloader",
+    "category": "arduino"
+  },
+  {
+    "query": "How to establish a secure SSH connection to a Raspberry Pi?",
+    "expected_section": "Ssh",
+    "category": "raspberry_pi"
+  }
+]
