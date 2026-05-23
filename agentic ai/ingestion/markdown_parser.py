@@ -132,6 +132,7 @@ def _copy_image_to_project(
         if suffix in ('.png',):
             shutil.copy2(source_path, target_path)
         elif suffix in ('.jpg', '.jpeg', '.gif', '.webp'):
+            # pyrefly: ignore [missing-import]
             from PIL import Image
             img = Image.open(source_path)
             if img.mode in ('CMYK', 'YCbCr'):

@@ -28,3 +28,8 @@ frontend/dist/
 # OS
 .DS_Store
 Thumbs.db
+
+
+assignment1/
+assignment2/
+assignment3/
