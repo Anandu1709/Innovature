@@ -46,28 +46,33 @@ def load_chunks() -> list[dict]:
     return chunks
 
 
+import re
+
 def tokenize(text: str) -> list[str]:
     """
-    Simple whitespace + lowercase tokenization.
+    Unified regex tokenizer.
 
-    Consistent with the tokenization used at query time in the test script
-    to ensure BM25 scoring is accurate.
+    Consistent with the tokenization used at query time to ensure
+    BM25 scoring is perfectly aligned and ignores punctuation artifacts.
     """
-    return text.lower().split()
+    return re.findall(r"\b\w+\b", text.lower())
 
 
-def build_bm25_index(chunks: list[dict]) -> tuple[BM25Okapi, list[str], list[str]]:
+def build_bm25_index(chunks: list[dict]) -> tuple[BM25Okapi, list[str], list[str], list[str], list[str]]:
     """
     Build a BM25Okapi index over all chunk texts.
 
     Returns:
-        bm25:      fitted BM25Okapi model
-        chunk_ids: aligned list of chunk_id strings (BM25 returns indices,
-                   this maps them back to IDs)
-        texts:     aligned list of raw text strings (for result display)
+        bm25:             fitted BM25Okapi model
+        chunk_ids:        aligned list of chunk_id strings
+        texts:            aligned list of raw text strings
+        source_documents: aligned list of source_document strings
+        section_names:    aligned list of section_name strings
     """
     chunk_ids = []
     texts = []
+    source_documents = []
+    section_names = []
     tokenized_corpus = []
 
     skipped = 0
@@ -79,6 +84,8 @@ def build_bm25_index(chunks: list[dict]) -> tuple[BM25Okapi, list[str], list[str
 
         chunk_ids.append(chunk["chunk_id"])
         texts.append(text)
+        source_documents.append(chunk.get("source_document", ""))
+        section_names.append(chunk.get("section_name", chunk.get("section", "")))
         tokenized_corpus.append(tokenize(text))
 
     if skipped > 0:
@@ -94,15 +101,23 @@ def build_bm25_index(chunks: list[dict]) -> tuple[BM25Okapi, list[str], list[str
     log.info(f"  Corpus size: {bm25.corpus_size}")
     log.info(f"  Avg doc length: {bm25.avgdl:.1f} tokens")
 
-    return bm25, chunk_ids, texts
+    return bm25, chunk_ids, texts, source_documents, section_names
 
 
-def save_index(bm25: BM25Okapi, chunk_ids: list[str], texts: list[str]) -> None:
+def save_index(
+    bm25: BM25Okapi,
+    chunk_ids: list[str],
+    texts: list[str],
+    source_documents: list[str],
+    section_names: list[str]
+) -> None:
     """Serialize BM25 index + aligned metadata to disk with pickle."""
     index_data = {
-        "bm25": bm25,
-        "chunk_ids": chunk_ids,
-        "texts": texts,
+        "bm25":             bm25,
+        "chunk_ids":        chunk_ids,
+        "texts":            texts,
+        "source_documents": source_documents,
+        "section_names":    section_names,
     }
 
     BM25_INDEX_FILE.parent.mkdir(parents=True, exist_ok=True)
@@ -114,12 +129,12 @@ def save_index(bm25: BM25Okapi, chunk_ids: list[str], texts: list[str]) -> None:
     log.info(f"Saved BM25 index: {BM25_INDEX_FILE.name} ({file_size:.2f} MB)")
 
 
-def load_index() -> tuple[BM25Okapi, list[str], list[str]]:
+def load_index() -> tuple[BM25Okapi, list[str], list[str], list[str], list[str]]:
     """
     Load a previously saved BM25 index from disk.
 
     Returns:
-        bm25, chunk_ids, texts  (same structure as build_bm25_index output)
+        bm25, chunk_ids, texts, source_documents, section_names
     """
     if not BM25_INDEX_FILE.exists():
         raise FileNotFoundError(f"BM25 index not found: {BM25_INDEX_FILE}")
@@ -127,11 +142,15 @@ def load_index() -> tuple[BM25Okapi, list[str], list[str]]:
     with open(BM25_INDEX_FILE, "rb") as f:
         data = pickle.load(f)
 
+    n = data["bm25"].corpus_size
+    source_docs = data.get("source_documents", [""] * n)
+    section_names = data.get("section_names", [""] * n)
+
     log.info(
-        f"Loaded BM25 index: {data['bm25'].corpus_size} docs, "
+        f"Loaded BM25 index: {n} docs, "
         f"{len(data['chunk_ids'])} chunk_ids"
     )
-    return data["bm25"], data["chunk_ids"], data["texts"]
+    return data["bm25"], data["chunk_ids"], data["texts"], source_docs, section_names
 
 
 def main():
@@ -144,13 +163,13 @@ def main():
     chunks = load_chunks()
 
     # 2. Build index
-    bm25, chunk_ids, texts = build_bm25_index(chunks)
+    bm25, chunk_ids, texts, source_docs, section_names = build_bm25_index(chunks)
 
     # 3. Save to disk
-    save_index(bm25, chunk_ids, texts)
+    save_index(bm25, chunk_ids, texts, source_docs, section_names)
 
     # 4. Verify by loading back
-    bm25_loaded, ids_loaded, _ = load_index()
+    bm25_loaded, ids_loaded, _, _, _ = load_index()
 
     # 5. Summary
     file_size = BM25_INDEX_FILE.stat().st_size / 1024 / 1024
