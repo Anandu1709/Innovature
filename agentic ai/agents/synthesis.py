@@ -48,6 +48,10 @@ RULES:
 - Cite source documents inline using [Source: filename] format.
 - If images are provided, reference them naturally in your answer \
   (e.g., "As shown in the diagram below...").
+- If an IMAGE ANALYSIS section is provided, incorporate the identified \
+  components, observations, and possible issues into your answer. \
+  Cross-reference what was seen in the user's uploaded image with the \
+  retrieved datasheet specifications.
 - Structure your answer with clear headings, bullet points, or numbered \
   steps where appropriate.
 - If the retrieved context does not contain enough information to fully \
@@ -110,6 +114,22 @@ def _build_synthesis_prompt(state: AgentState) -> str:
             f"[LOOPBACK INSTRUCTION] The previous answer was insufficient. "
             f"Reason: {feedback}. Please address this gap in your new answer.\n"
         )
+
+    # Include image analysis context (from Vision Agent) if present
+    image_summary = state.get("image_summary")
+    if image_summary:
+        parts.append("=== USER IMAGE ANALYSIS ===")
+        parts.append(f"Image Summary: {image_summary}")
+        components = state.get("components", [])
+        if components:
+            parts.append(f"Components Identified: {', '.join(components)}")
+        observations = state.get("observations", [])
+        if observations:
+            parts.append(f"Observations: {', '.join(observations)}")
+        possible_issues = state.get("possible_issues", [])
+        if possible_issues:
+            parts.append(f"Possible Issues: {', '.join(possible_issues)}")
+        parts.append("=== END IMAGE ANALYSIS ===\n")
 
     # Include retrieved text chunks
     text_results = state.get("text_results", [])

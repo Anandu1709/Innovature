@@ -27,6 +27,8 @@ from dotenv import load_dotenv
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
+from agents.state import create_initial_state
+
 # Load environment variables
 load_dotenv(PROJECT_ROOT / ".env")
 
@@ -40,6 +42,8 @@ log = logging.getLogger(__name__)
 
 # --- Pre-compiled graph (set during startup) ---------------------------------
 compiled_graph = None
+
+PRELOAD_QUERIES = []
 
 # =============================================================================
 #  App Initialization
@@ -112,7 +116,43 @@ async def warmup():
         # Don't crash the server — let /health report the failure
         # and /chat will return 503 if graph is None
 
-    log.info("[STARTUP] Warmup complete")
+    log.info("[STARTUP] Warmup complete — starting cache preload...")
+
+    # 6. Preload demo queries into cache (staggered to respect Gemini RPM limit)
+    if compiled_graph is not None:
+        import uuid
+        import time as _time
+        from api.routes.chat import _state_to_response
+        from api import cache as _cache
+
+        rpm_delay = 16  # seconds between queries (safe for 4 RPM limit)
+
+        for i, query in enumerate(PRELOAD_QUERIES):
+            try:
+                # Respect RPM — wait between queries (skip delay before first)
+                if i > 0:
+                    log.info(f"[STARTUP] Waiting {rpm_delay}s for RPM limit...")
+                    _time.sleep(rpm_delay)
+
+                log.info(f"[STARTUP] Preloading ({i+1}/{len(PRELOAD_QUERIES)}): '{query}'")
+                state = create_initial_state(
+                    query=query,
+                    session_id=str(uuid.uuid4()),
+                    session_history=[],
+                )
+                final_state = compiled_graph.invoke(state)
+                response = _state_to_response(final_state, "preload")
+                if response.intent != "clarify":
+                    _cache.put(query, response)
+                    log.info(f"[STARTUP] ✓ Preloaded: '{query}'")
+                else:
+                    log.info(f"[STARTUP] ✗ Skipped (clarify intent): '{query}'")
+            except Exception as e:
+                log.warning(f"[STARTUP] ✗ Failed to preload '{query}': {e}")
+
+        log.info(f"[STARTUP] Cache preload done — {_cache.stats()['size']} entries cached")
+    else:
+        log.warning("[STARTUP] Skipping cache preload — graph not available")
 
 
 # =============================================================================
@@ -125,12 +165,15 @@ async def health():
     Rich health check reporting component status.
 
     Returns:
-        {"status": "ok", "milvus": "connected"|"disconnected", "gemini": "connected"|"disconnected"}
+        {"status": "ok", "milvus": ..., "gemini": ..., "cache": {...}}
     """
+    from api import cache as _cache
+
     checks = {
         "status": "ok",
         "milvus": "disconnected",
         "gemini": "disconnected",
+        "cache": _cache.stats(),
     }
 
     # Check Milvus connection
@@ -149,6 +192,27 @@ async def health():
         pass
 
     return checks
+
+
+@app.post("/cache/clear", tags=["admin"])
+async def clear_cache():
+    """
+    Clear the response cache. Protected by DEBUG env var.
+
+    Returns:
+        {"cleared": <count>}
+    """
+    debug_mode = os.getenv("DEBUG", "false").lower() in ("true", "1", "yes")
+    if not debug_mode:
+        from fastapi import HTTPException
+        raise HTTPException(
+            status_code=403,
+            detail="Cache clear is only available in DEBUG mode. Set DEBUG=true in .env",
+        )
+
+    from api import cache as _cache
+    count = _cache.clear()
+    return {"cleared": count}
 
 
 # =============================================================================

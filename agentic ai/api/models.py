@@ -7,6 +7,7 @@ ChatResponse: Answer, single top image, sources, session tracking.
 
 from pydantic import BaseModel, Field
 from typing import Optional, List
+import time
 
 
 class ChatRequest(BaseModel):
@@ -30,3 +31,5 @@ class ChatResponse(BaseModel):
     image_url: Optional[str] = None                    # "/images/arduino/file.png"
     image_caption: Optional[str] = None
     sources: List[str] = Field(default_factory=list)
+    cache_hit: bool = False                            # True if served from cache
+    cached_at: Optional[float] = None                  # Unix timestamp when cached

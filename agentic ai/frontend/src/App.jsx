@@ -45,18 +45,19 @@ export default function App() {
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const handleSend = useCallback(
-    async (query) => {
+    async (query, imageFile = null) => {
       const userMsg = {
         id: crypto.randomUUID(),
         sender: 'user',
         text: query,
+        inputImageUrl: imageFile ? URL.createObjectURL(imageFile) : null,
       };
       setMessages((prev) => [...prev, userMsg]);
       setLoading(true);
       setShowSuggestions(false);
 
       try {
-        const res = await postChat(query, sessionId);
+        const res = await postChat(query, sessionId, imageFile);
 
         // Update session ID if server returned a new one
         if (res.session_id && res.session_id !== sessionId) {
@@ -72,6 +73,7 @@ export default function App() {
           imageCaption: res.image_caption || null,
           sources: res.sources || [],
           intent: res.intent || null,
+          cacheHit: res.cache_hit || false,
         };
         setMessages((prev) => [...prev, assistantMsg]);
       } catch (err) {
@@ -136,7 +138,7 @@ export default function App() {
               <button
                 key={`pin-${i}`}
                 className="suggestion-chip"
-                onClick={() => handleSend(q)}
+                onClick={() => handleSend(q, null)}
               >
                 {q}
               </button>
@@ -148,7 +150,7 @@ export default function App() {
               <button
                 key={`ext-${i}`}
                 className="suggestion-chip"
-                onClick={() => handleSend(q)}
+                onClick={() => handleSend(q, null)}
               >
                 {q}
               </button>

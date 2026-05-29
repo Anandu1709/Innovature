@@ -1,4 +1,4 @@
-import { User, Bot, ExternalLink } from 'lucide-react';
+import { User, Bot, ExternalLink, Zap } from 'lucide-react';
 
 export default function MessageBubble({ message }) {
   const isUser = message.sender === 'user';
@@ -10,7 +10,25 @@ export default function MessageBubble({ message }) {
       </div>
 
       <div className="message-content">
+        {/* User-uploaded image */}
+        {message.inputImageUrl && (
+          <div className="message-input-image">
+            <img
+              src={message.inputImageUrl}
+              alt="Uploaded"
+              className="input-image-thumb"
+            />
+          </div>
+        )}
+
         <div className="message-text">{message.text}</div>
+
+        {message.cacheHit && (
+          <div className="cache-badge">
+            <Zap size={11} />
+            <span>Cached</span>
+          </div>
+        )}
 
         {message.imageUrl && (
           <div className="message-image-container">

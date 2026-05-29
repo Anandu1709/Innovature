@@ -5,6 +5,11 @@ This TypedDict defines every field that flows between agent nodes.
 All agents read from and write to this shared state object.
 
 Reference: Architecture Document Section 7.1
+
+Image Input Upgrade:
+  Added image_path, image_analysis, image_summary, components,
+  observations, possible_issues, and domain fields to support
+  user-uploaded image analysis via the Vision Agent.
 """
 
 from typing import TypedDict, List, Dict, Any, Optional
@@ -53,8 +58,42 @@ class AgentState(TypedDict):
 
     intent: str
     """
-    Intent classification from the Context Router.
+    Intent classification from the Context Router or Vision Agent.
     One of: "text", "visual", "both", "clarify".
+    """
+
+    # ── Image Input ──────────────────────────────────────────────────
+    image_path: Optional[str]
+    """
+    Temporary file path to the uploaded image. Set by the API layer.
+    The Vision Agent reads this file, then the API layer deletes it
+    after graph execution completes.
+    """
+
+    image_analysis: Optional[Dict[str, Any]]
+    """
+    Structured JSON output from the Vision Agent. Contains:
+      domain, intent, summary, components, observations, possible_issues.
+    Stored as a dict so downstream agents can access any field.
+    """
+
+    image_summary: Optional[str]
+    """Human-readable summary of what the uploaded image contains."""
+
+    components: List[str]
+    """List of electronic components identified in the uploaded image."""
+
+    observations: List[str]
+    """Visual observations about the circuit/setup in the image."""
+
+    possible_issues: List[str]
+    """Potential problems identified in the image (e.g. reversed LED polarity)."""
+
+    domain: Optional[str]
+    """
+    Domain classification from the Vision Agent.
+    'electronics' — image contains circuits, boards, components.
+    'general'     — screenshot, browser error, non-electronics image.
     """
 
     # ── Context Pools ───────────────────────────────────────────────────
@@ -122,6 +161,7 @@ def create_initial_state(
     query: str,
     session_id: Optional[str] = None,
     session_history: Optional[List[Dict[str, str]]] = None,
+    image_path: Optional[str] = None,
 ) -> AgentState:
     """
     Factory function to create a properly initialised AgentState
@@ -130,7 +170,8 @@ def create_initial_state(
     Args:
         query:           The user's input question.
         session_id:      Optional session identifier. Auto-generated if None.
-        session_history:  Optional prior conversation turns for follow-up context.
+        session_history: Optional prior conversation turns for follow-up context.
+        image_path:      Optional path to a temporary uploaded image file.
 
     Usage:
         state = create_initial_state("How do I configure SPI on Arduino?")
@@ -139,6 +180,10 @@ def create_initial_state(
             session_id="abc-123",
             session_history=[{"role": "user", "content": "How to wire an LED?"},
                             {"role": "assistant", "content": "Use a 220Ω resistor..."}],
+        )
+        state = create_initial_state(
+            "Why isn't this working?",
+            image_path="/tmp/upload_abc123.png",
         )
     """
     import uuid
@@ -158,4 +203,12 @@ def create_initial_state(
         verification_passed=False,
         verification_feedback=None,
         loopback_count=0,
+        # Image input fields
+        image_path=image_path,
+        image_analysis=None,
+        image_summary=None,
+        components=[],
+        observations=[],
+        possible_issues=[],
+        domain=None,
     )

@@ -1,14 +1,19 @@
 """
 Graph Orchestrator — Connects all agents into a compiled LangGraph StateGraph.
 
-Topology:
-  START → context_router
-       → clarification → END                         (intent = clarify)
-       → hybrid_retrieval → synthesis → END           (intent = text)
-       → visual_retrieval → synthesis → END           (intent = visual)
-       → hybrid_retrieval → visual_retrieval → synthesis → END  (intent = both)
+Topology (upgraded with image input support):
+  START → input_router
+       → context_router (text-only flow — unchanged)
+            → clarification → END                         (intent = clarify)
+            → hybrid_retrieval → synthesis → END           (intent = text)
+            → visual_retrieval → synthesis → END           (intent = visual)
+            → hybrid_retrieval → visual_retrieval → synthesis → END  (intent = both)
+       → vision_agent (image present)
+            → image_clarification → END                    (image-only, no text)
+            → general_response → END                       (domain = general)
+            → image_context_enrichment → hybrid_retrieval  (domain = electronics)
 
-  Loopback: synthesis → context_router (if verification fails, up to 3x)
+  Loopback: synthesis → context_router (if verification fails, up to MAX_LOOPBACKS)
 
 Usage:
   python agents/graph.py                    # Run interactive test
@@ -31,6 +36,13 @@ from agents.clarification import clarification_agent
 from agents.hybrid_retrieval import hybrid_retrieval_agent
 from agents.visual_retrieval import visual_retrieval_agent
 from agents.synthesis import synthesis_agent
+
+# New agents for image input support
+from agents.input_router import input_router_node, route_from_input
+from agents.vision_agent import vision_agent
+from agents.image_clarification import image_clarification_agent
+from agents.general_response import general_response_agent
+from agents.image_context_enrichment import image_context_enrichment
 
 # --- Config ------------------------------------------------------------------
 logging.basicConfig(
@@ -105,6 +117,29 @@ def route_after_synthesis(state: AgentState) -> str:
         return "context_router"
 
 
+def route_after_vision(state: AgentState) -> str:
+    """
+    Route from vision_agent based on query presence and domain.
+
+    Three possible destinations:
+      - Image-only (no text query) → image_clarification
+      - General domain → general_response (bypass RAG)
+      - Electronics domain → image_context_enrichment (enter RAG)
+    """
+    query = state.get("query", "").strip()
+    domain = state.get("domain", "electronics")
+
+    if not query:
+        log.info("[GRAPH] Image-only upload → image_clarification")
+        return "image_clarification"
+    if domain == "general":
+        log.info("[GRAPH] General image → general_response (bypass RAG)")
+        return "general_response"
+
+    log.info("[GRAPH] Electronics image → image_context_enrichment → RAG")
+    return "image_context_enrichment"
+
+
 # =============================================================================
 #  Graph Builder
 # =============================================================================
@@ -114,25 +149,68 @@ def build_graph() -> StateGraph:
     Construct and compile the full agent StateGraph.
 
     Node map:
-      context_router     → classifies intent
-      clarification      → generates follow-up question (terminal)
-      hybrid_retrieval   → BM25 + dense + RRF text search
-      visual_retrieval   → CLIP cross-modal image search
-      synthesis          → answer generation + self-verification
+      input_router              → routes by image presence (NEW)
+      vision_agent              → Gemini vision analysis (NEW)
+      image_clarification       → image-only clarification (NEW)
+      general_response          → direct answer for non-electronics (NEW)
+      image_context_enrichment  → rule-based query enrichment (NEW)
+      context_router            → classifies intent (existing)
+      clarification             → generates follow-up question (existing)
+      hybrid_retrieval          → BM25 + dense + RRF text search (existing)
+      visual_retrieval          → CLIP cross-modal image search (existing)
+      synthesis                 → answer generation + self-verification (existing)
     """
     graph = StateGraph(AgentState)
 
     # --- Add nodes -----------------------------------------------------------
+    # New image input nodes
+    graph.add_node("input_router", input_router_node)
+    graph.add_node("vision_agent", vision_agent)
+    graph.add_node("image_clarification", image_clarification_agent)
+    graph.add_node("general_response", general_response_agent)
+    graph.add_node("image_context_enrichment", image_context_enrichment)
+
+    # Existing nodes (unchanged)
     graph.add_node("context_router", context_router)
     graph.add_node("clarification", clarification_agent)
     graph.add_node("hybrid_retrieval", hybrid_retrieval_agent)
     graph.add_node("visual_retrieval", visual_retrieval_agent)
     graph.add_node("synthesis", synthesis_agent)
 
-    # --- Set entry point -----------------------------------------------------
-    graph.set_entry_point("context_router")
+    # --- Set entry point (changed from context_router to input_router) -------
+    graph.set_entry_point("input_router")
 
-    # --- Conditional edges ---------------------------------------------------
+    # --- New conditional edges for image routing -----------------------------
+
+    # From input_router: route by image presence
+    graph.add_conditional_edges(
+        "input_router",
+        route_from_input,
+        {
+            "vision_agent": "vision_agent",
+            "context_router": "context_router",
+        },
+    )
+
+    # From vision_agent: route by query presence and domain
+    graph.add_conditional_edges(
+        "vision_agent",
+        route_after_vision,
+        {
+            "image_clarification": "image_clarification",
+            "general_response": "general_response",
+            "image_context_enrichment": "image_context_enrichment",
+        },
+    )
+
+    # Terminal nodes for image flows
+    graph.add_edge("image_clarification", END)
+    graph.add_edge("general_response", END)
+
+    # From enrichment: enter the existing retrieval pipeline
+    graph.add_edge("image_context_enrichment", "hybrid_retrieval")
+
+    # --- Existing conditional edges (unchanged) ------------------------------
 
     # From context_router: route by intent
     graph.add_conditional_edges(
