@@ -47,7 +47,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from pymilvus import MilvusClient
 from sentence_transformers import SentenceTransformer
 from rank_bm25 import BM25Okapi
 
@@ -105,7 +104,6 @@ def _tokenize(text: str) -> list[str]:
 
 _text_model = None
 _bm25_data = None
-_milvus_client = None
 
 
 def _get_text_model() -> SentenceTransformer:
@@ -150,15 +148,6 @@ def _get_bm25() -> tuple[BM25Okapi, list[str], list[str], list[str], list[str]]:
     return _bm25_data
 
 
-def _get_milvus_client() -> MilvusClient:
-    """Lazy-load the Milvus Lite client connection."""
-    global _milvus_client
-    if _milvus_client is None:
-        log.info("[HYBRID] Connecting to Milvus Lite...")
-        _milvus_client = MilvusClient(uri=MILVUS_DB_PATH)
-        _milvus_client.load_collection(TEXT_COLLECTION)
-        log.info("[HYBRID] Milvus connected and text_collection loaded")
-    return _milvus_client
 
 
 # =============================================================================
@@ -172,8 +161,9 @@ def _dense_search(query: str, top_k: int = DENSE_TOP_K) -> list[dict]:
     (lower distance = more similar). We convert to similarity so that
     higher score = better match, consistent with BM25 and RRF.
     """
+    from utils.milvus_manager import get_client
     model = _get_text_model()
-    client = _get_milvus_client()
+    client = get_client()
 
     query_embedding = model.encode(
         [query], normalize_embeddings=True

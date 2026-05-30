@@ -87,7 +87,7 @@ async def warmup():
 
     try:
         # 1. Text embedding model (all-MiniLM-L6-v2, 384-dim)
-        from agents.hybrid_retrieval import _get_text_model, _get_bm25, _get_milvus_client
+        from agents.hybrid_retrieval import _get_text_model, _get_bm25
         _get_text_model()
         log.info("[STARTUP] Text embedding model loaded")
 
@@ -95,21 +95,27 @@ async def warmup():
         _get_bm25()
         log.info("[STARTUP] BM25 index loaded")
 
-        # 3. Milvus Lite (text_collection)
-        _get_milvus_client()
-        log.info("[STARTUP] Milvus text_collection loaded")
+        # 3. Milvus Lite — centralized connection manager (text + image collections)
+        from utils.milvus_manager import get_client, load_collection
+        get_client()
+        load_collection("text_collection")
+        load_collection("image_collection")
+        log.info("[STARTUP] Milvus text_collection and image_collection loaded")
 
-        # 4. CLIP model (clip-ViT-B-32, 512-dim) + image_collection
+        # 4. CLIP model (clip-ViT-B-32, 512-dim)
         from agents.visual_retrieval import _get_clip_model
-        from agents.visual_retrieval import _get_milvus_client as _get_vis_milvus
         _get_clip_model()
-        _get_vis_milvus()
-        log.info("[STARTUP] CLIP model and image_collection loaded")
+        log.info("[STARTUP] CLIP model loaded")
 
         # 5. Pre-compile LangGraph StateGraph
         from agents.graph import build_graph
         compiled_graph = build_graph()
         log.info("[STARTUP] LangGraph agent graph compiled")
+
+        # 6. Initialize SQLite document registry
+        from admin.registry import init_db
+        init_db()
+        log.info("[STARTUP] SQLite document registry initialized")
 
     except Exception as e:
         log.exception(f"[STARTUP] Warmup failed: {e}")
@@ -118,7 +124,7 @@ async def warmup():
 
     log.info("[STARTUP] Warmup complete — starting cache preload...")
 
-    # 6. Preload demo queries into cache (staggered to respect Gemini RPM limit)
+    # 7. Preload demo queries into cache (staggered to respect Gemini RPM limit)
     if compiled_graph is not None:
         import uuid
         import time as _time
@@ -221,6 +227,8 @@ async def clear_cache():
 
 from api.routes.chat import router as chat_router
 from api.routes.images import router as images_router
+from api.routes.admin import router as admin_router
 
 app.include_router(chat_router)
 app.include_router(images_router)
+app.include_router(admin_router)

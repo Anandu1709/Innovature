@@ -1,7 +1,8 @@
-import { useState, useCallback } from 'react';
-import { Zap, Lightbulb, X } from 'lucide-react';
+import { useState, useCallback, useEffect } from 'react';
+import { Zap, Lightbulb, X, Layers } from 'lucide-react';
 import ChatWindow from './components/ChatWindow';
 import InputBar from './components/InputBar';
+import AdminPage from './pages/AdminPage';
 import { postChat } from './services/api';
 import './index.css';
 
@@ -43,6 +44,16 @@ export default function App() {
   const [sessionId, setSessionId] = useState(getSessionId);
   const [loading, setLoading] = useState(false);
   const [showSuggestions, setShowSuggestions] = useState(false);
+  const [currentPath, setCurrentPath] = useState(window.location.pathname);
+
+  // Sync state with browser location (back / forward clicks)
+  useEffect(() => {
+    const handlePopState = () => {
+      setCurrentPath(window.location.pathname);
+    };
+    window.addEventListener('popstate', handlePopState);
+    return () => window.removeEventListener('popstate', handlePopState);
+  }, []);
 
   const handleSend = useCallback(
     async (query, imageFile = null, globalSearchRequested = false) => {
@@ -103,7 +114,22 @@ export default function App() {
     setMessages([]);
   };
 
+  const handleBackToChat = () => {
+    window.history.pushState({}, '', '/');
+    setCurrentPath('/');
+  };
+
+  const handleNavigateToAdmin = () => {
+    window.history.pushState({}, '', '/admin');
+    setCurrentPath('/admin');
+  };
+
   const hasMessages = messages.length > 0;
+
+  // Render Admin View if Route matches
+  if (currentPath === '/admin') {
+    return <AdminPage onBackToChat={handleBackToChat} />;
+  }
 
   return (
     <div className="app">
@@ -114,6 +140,14 @@ export default function App() {
           <h1 className="header-title">Electronics Assistant</h1>
         </div>
         <div className="header-right">
+          <button
+            className="icon-button"
+            onClick={handleNavigateToAdmin}
+            aria-label="Manage Knowledge Base"
+            title="Knowledge Base Admin"
+          >
+            <Layers size={18} />
+          </button>
           <button
             className="icon-button"
             onClick={() => setShowSuggestions((v) => !v)}

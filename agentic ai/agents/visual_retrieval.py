@@ -37,7 +37,6 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from pymilvus import MilvusClient
 from sentence_transformers import SentenceTransformer
 
 from agents.state import AgentState
@@ -85,7 +84,6 @@ def _tokenize(text: str) -> set[str]:
 # =============================================================================
 
 _clip_model = None
-_milvus_client = None
 
 
 def _get_clip_model() -> SentenceTransformer:
@@ -98,15 +96,6 @@ def _get_clip_model() -> SentenceTransformer:
     return _clip_model
 
 
-def _get_milvus_client() -> MilvusClient:
-    """Lazy-load the Milvus Lite client and load image_collection."""
-    global _milvus_client
-    if _milvus_client is None:
-        log.info("[VISUAL] Connecting to Milvus Lite...")
-        _milvus_client = MilvusClient(uri=MILVUS_DB_PATH)
-        _milvus_client.load_collection(IMAGE_COLLECTION)
-        log.info("[VISUAL] Milvus connected and image_collection loaded")
-    return _milvus_client
 
 
 # =============================================================================
@@ -122,8 +111,9 @@ def _image_search(query: str, top_k: int = IMAGE_TOP_K) -> list[dict]:
 
     Returns results with cosine similarity scores (higher = better).
     """
+    from utils.milvus_manager import get_client
     model = _get_clip_model()
-    client = _get_milvus_client()
+    client = get_client()
 
     # CLIP encodes text into the same 512-dim space as images
     query_embedding = model.encode(
