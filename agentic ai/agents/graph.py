@@ -3,7 +3,7 @@ Graph Orchestrator — Connects all agents into a compiled LangGraph StateGraph.
 
 Topology (upgraded with image input support):
   START → input_router
-       → context_router (text-only flow — unchanged)
+       → context_router (text-only flow)
             → clarification → END                         (intent = clarify)
             → hybrid_retrieval → synthesis → END           (intent = text)
             → visual_retrieval → synthesis → END           (intent = visual)
@@ -13,7 +13,8 @@ Topology (upgraded with image input support):
             → general_response → END                       (domain = general)
             → image_context_enrichment → hybrid_retrieval  (domain = electronics)
 
-  Loopback: synthesis → context_router (if verification fails, up to MAX_LOOPBACKS)
+  Synthesis always routes to END (no loopback). Retrieval quality is
+  assessed by the Python confidence validator inside the synthesis node.
 
 Usage:
   python agents/graph.py                    # Run interactive test
@@ -92,31 +93,6 @@ def route_after_hybrid(state: AgentState) -> str:
         return "synthesis"
 
 
-def route_after_synthesis(state: AgentState) -> str:
-    """
-    Route from synthesis based on verification result:
-      - If passed (or max loopbacks reached): END
-      - If failed and loopbacks remain: loop back to context_router
-    """
-    passed = state.get("verification_passed", True)
-    loopback_count = state.get("loopback_count", 0)
-
-    if passed:
-        log.info("[GRAPH] Verification passed → END")
-        return END
-    elif loopback_count >= MAX_LOOPBACKS:
-        log.warning(
-            f"[GRAPH] Max loopbacks ({MAX_LOOPBACKS}) reached → END"
-        )
-        return END
-    else:
-        log.info(
-            f"[GRAPH] Verification failed (loopback {loopback_count}/{MAX_LOOPBACKS}) "
-            f"→ routing back to context_router"
-        )
-        return "context_router"
-
-
 def route_after_vision(state: AgentState) -> str:
     """
     Route from vision_agent based on query presence and domain.
@@ -149,16 +125,17 @@ def build_graph() -> StateGraph:
     Construct and compile the full agent StateGraph.
 
     Node map:
-      input_router              → routes by image presence (NEW)
-      vision_agent              → Gemini vision analysis (NEW)
-      image_clarification       → image-only clarification (NEW)
-      general_response          → direct answer for non-electronics (NEW)
-      image_context_enrichment  → rule-based query enrichment (NEW)
-      context_router            → classifies intent (existing)
-      clarification             → generates follow-up question (existing)
-      hybrid_retrieval          → BM25 + dense + RRF text search (existing)
-      visual_retrieval          → CLIP cross-modal image search (existing)
-      synthesis                 → answer generation + self-verification (existing)
+      input_router              → routes by image presence
+      vision_agent              → Gemini vision analysis
+      image_clarification       → image-only clarification (pure Python)
+      general_response          → direct answer for non-electronics
+      image_context_enrichment  → rule-based query enrichment (pure Python)
+      context_router            → classifies intent (gemini-2.5-flash-lite)
+      clarification             → generates follow-up question (gemini-2.5-flash-lite)
+      hybrid_retrieval          → BM25 + dense + RRF text search (local models)
+      visual_retrieval          → CLIP cross-modal image search (local models)
+      synthesis                 → Python confidence check + answer generation (gemini-2.5-flash)
+                                   always routes to END — no loopback
     """
     graph = StateGraph(AgentState)
 
@@ -239,15 +216,8 @@ def build_graph() -> StateGraph:
     # From visual_retrieval: always go to synthesis
     graph.add_edge("visual_retrieval", "synthesis")
 
-    # From synthesis: check verification → END or loopback
-    graph.add_conditional_edges(
-        "synthesis",
-        route_after_synthesis,
-        {
-            END: END,
-            "context_router": "context_router",
-        },
-    )
+    # From synthesis: always END — confidence scoring is Python-only, no loopback
+    graph.add_edge("synthesis", END)
 
     # --- Compile -------------------------------------------------------------
     compiled = graph.compile()

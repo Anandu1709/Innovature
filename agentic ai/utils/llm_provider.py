@@ -146,17 +146,17 @@ class ResponseCache:
         self._lock = threading.Lock()
 
     @staticmethod
-    def _make_key(messages: list, temperature: float) -> str:
-        """Create a deterministic cache key from messages and temperature."""
-        raw = f"{temperature}:{str(messages)}"
+    def _make_key(messages: list, temperature: float, model_name: str = "") -> str:
+        """Create a deterministic cache key from messages, temperature, and model."""
+        raw = f"{model_name}:{temperature}:{str(messages)}"
         return hashlib.md5(raw.encode()).hexdigest()
 
-    def get(self, messages: list, temperature: float) -> str | None:
+    def get(self, messages: list, temperature: float, model_name: str = "") -> str | None:
         """Retrieve a cached response, or None on miss."""
         if not self.enabled:
             return None
 
-        key = self._make_key(messages, temperature)
+        key = self._make_key(messages, temperature, model_name)
         with self._lock:
             if key in self._cache:
                 self._hits += 1
@@ -165,12 +165,12 @@ class ResponseCache:
             self._misses += 1
             return None
 
-    def put(self, messages: list, temperature: float, response: str):
+    def put(self, messages: list, temperature: float, response: str, model_name: str = ""):
         """Store a response in the cache."""
         if not self.enabled:
             return
 
-        key = self._make_key(messages, temperature)
+        key = self._make_key(messages, temperature, model_name)
         with self._lock:
             # Simple LRU: evict oldest when full
             if len(self._cache) >= self._max_size:
@@ -200,12 +200,16 @@ _llm_instances: dict[tuple, ChatGoogleGenerativeAI] = {}
 _llm_lock = threading.Lock()
 
 
-def get_llm(temperature: float = 0.3) -> ChatGoogleGenerativeAI:
+def get_llm(temperature: float = 0.3, model_name: str = None) -> ChatGoogleGenerativeAI:
     """
-    Get a singleton LLM instance for the given temperature.
+    Get a singleton LLM instance for the given temperature and model.
 
     Reuses gRPC connections by caching instances keyed on
     (model_name, temperature). Thread-safe.
+
+    Args:
+        temperature: Model temperature.
+        model_name:  Optional model override. Defaults to global MODEL_NAME.
     """
     api_key = os.getenv("GOOGLE_API_KEY")
     if not api_key or api_key == "your_gemini_api_key_here":
@@ -213,16 +217,17 @@ def get_llm(temperature: float = 0.3) -> ChatGoogleGenerativeAI:
             "GOOGLE_API_KEY not set. Update your .env file with a valid Gemini API key."
         )
 
-    cache_key = (MODEL_NAME, temperature)
+    effective_model = model_name or MODEL_NAME
+    cache_key = (effective_model, temperature)
 
     with _llm_lock:
         if cache_key not in _llm_instances:
             log.info(
                 f"[LLM] Creating singleton instance: "
-                f"model={MODEL_NAME}, temperature={temperature}"
+                f"model={effective_model}, temperature={temperature}"
             )
             _llm_instances[cache_key] = ChatGoogleGenerativeAI(
-                model=MODEL_NAME,
+                model=effective_model,
                 google_api_key=api_key,
                 temperature=temperature,
             )
@@ -238,6 +243,7 @@ def invoke_with_rate_limit(
     messages: list[dict],
     temperature: float = 0.3,
     use_cache: bool = True,
+    model_name: str = None,
 ) -> str:
     """
     Invoke the LLM with automatic rate limiting and optional caching.
@@ -249,13 +255,17 @@ def invoke_with_rate_limit(
         temperature: Model temperature (0.0 = deterministic, 0.3 = creative).
         use_cache:   Whether to check/populate the response cache.
                      Set False for verification calls where freshness matters.
+        model_name:  Optional Gemini model override (e.g. "gemini-2.5-flash-lite").
+                     Defaults to the global MODEL_NAME from .env.
 
     Returns:
         The response content string (stripped).
     """
+    effective_model = model_name or MODEL_NAME
+
     # 1. Check cache
     if use_cache:
-        cached = _response_cache.get(messages, temperature)
+        cached = _response_cache.get(messages, temperature, effective_model)
         if cached is not None:
             return cached
 
@@ -263,13 +273,13 @@ def invoke_with_rate_limit(
     _rate_limiter.acquire()
 
     # 3. Invoke LLM
-    llm = get_llm(temperature=temperature)
+    llm = get_llm(temperature=temperature, model_name=effective_model)
     response = llm.invoke(messages)
     content = response.content.strip()
 
     # 4. Cache response
     if use_cache:
-        _response_cache.put(messages, temperature, content)
+        _response_cache.put(messages, temperature, content, effective_model)
 
     return content
 

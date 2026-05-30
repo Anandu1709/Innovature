@@ -9,12 +9,15 @@ analysis context + Gemini.
 Uses the existing LangChain LLM provider for consistency with other agents.
 """
 
+import os
 import logging
 
 from agents.state import AgentState
 from utils.llm_provider import invoke_with_rate_limit
 
 log = logging.getLogger(__name__)
+
+GENERAL_RESPONSE_MODEL = os.getenv("GENERAL_RESPONSE_MODEL", "gemini-2.5-flash-lite")
 
 
 def general_response_agent(state: AgentState) -> dict:
@@ -56,6 +59,7 @@ def general_response_agent(state: AgentState) -> dict:
             ],
             temperature=0.3,
             use_cache=False,
+            model_name=GENERAL_RESPONSE_MODEL,
         )
     except Exception as e:
         log.exception(f"[GENERAL] Answer generation failed: {e}")

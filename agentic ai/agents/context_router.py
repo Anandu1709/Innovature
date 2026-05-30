@@ -10,6 +10,7 @@ Usage (standalone test):
   python agents/context_router.py
 """
 
+import os
 import sys
 import logging
 from pathlib import Path
@@ -28,6 +29,8 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
+
+CONTEXT_ROUTER_MODEL = os.getenv("CONTEXT_ROUTER_MODEL", "gemini-2.5-flash-lite")
 
 # --- Classification Prompt ---------------------------------------------------
 ROUTER_SYSTEM_PROMPT = """\
@@ -120,6 +123,7 @@ def context_router(state: AgentState) -> dict:
         ],
         temperature=0.0,  # Deterministic classification
         use_cache=True,   # Same query → same intent
+        model_name=CONTEXT_ROUTER_MODEL,
     ).lower()
 
     valid_intents = {"text", "visual", "both", "clarify"}

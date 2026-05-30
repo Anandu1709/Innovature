@@ -51,7 +51,7 @@ logging.basicConfig(
 log = logging.getLogger(__name__)
 
 # Use the same model configured in .env
-VISION_MODEL = os.getenv("GEMINI_MODEL", "gemini-2.5-flash")
+VISION_MODEL = os.getenv("VISION_MODEL", "gemini-2.5-flash")
 
 # --- Singleton Gemini client -------------------------------------------------
 _genai_model = None

@@ -1,20 +1,20 @@
 """
-Synthesis & Verification Agent — Generates the final answer and self-verifies.
+Synthesis & Confidence Agent — Generates the final answer with Python retrieval validation.
 
 Two-phase pipeline:
-  Phase 1 (Synthesis):  Combines retrieved text chunks and images into a
-                        comprehensive, cited answer using Gemini.
-  Phase 2 (Verification): A second Gemini call acts as a critic, evaluating
-                          completeness, grounding, and hallucination risk.
-                          If verification fails, triggers a loopback signal.
+  Phase 1 (Confidence): Pure Python checks on the retrieved results before
+                        calling Gemini. Validates chunk count, relevance score,
+                        query-term overlap, and source presence. Zero RPM cost.
+  Phase 2 (Synthesis):  Combines retrieved text chunks and images into a
+                        comprehensive, cited answer using a single Gemini call.
+                        Always routes to END — no loopback.
 
 Usage (standalone test):
   python agents/synthesis.py
 """
 
+import os
 import sys
-import json
-import re
 import logging
 from pathlib import Path
 
@@ -22,7 +22,7 @@ from pathlib import Path
 PROJECT_ROOT = Path(__file__).resolve().parent.parent
 sys.path.insert(0, str(PROJECT_ROOT))
 
-from agents.state import AgentState, MAX_LOOPBACKS
+from agents.state import AgentState
 from utils.llm_provider import invoke_with_rate_limit
 
 # --- Config ------------------------------------------------------------------
@@ -32,6 +32,11 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
+
+SYNTHESIS_MODEL = os.getenv("SYNTHESIS_MODEL", "gemini-2.5-flash")
+
+# Minimum fused score for the top retrieved chunk to be considered relevant
+MIN_TOP_SCORE = float(os.getenv("RETRIEVAL_MIN_SCORE", "0.005"))
 
 
 # =============================================================================
@@ -62,32 +67,130 @@ RULES:
 - Keep the answer focused and practical for electronics engineers/makers.
 """
 
-VERIFICATION_SYSTEM_PROMPT = """\
-You are a quality verification agent. Your job is to evaluate whether \
-the generated answer adequately addresses the user's original question.
-
-Evaluate the answer on these criteria:
-1. COMPLETENESS: Does the answer address all aspects of the user's query?
-2. GROUNDING: Is the answer grounded in the provided source documents? \
-   Are citations present?
-3. ACCURACY: Are there any obvious hallucinations or fabricated details \
-   not supported by the retrieved context?
-4. ACTIONABILITY: For how-to questions, does the answer provide clear, \
-   followable steps?
-
-Respond with a JSON object (and NOTHING else) in this exact format:
-{
-  "passed": true/false,
-  "reason": "Brief explanation of why it passed or failed",
-  "missing_info": "What specific information is missing (empty string if passed)",
-  "refined_query": "A better search query to find the missing info (empty string if passed)"
-}
-"""
-
 
 
 # =============================================================================
-#  Phase 1: Answer Synthesis
+#  Phase 1: Python Retrieval Confidence Validation  (zero RPM)
+# =============================================================================
+
+def validate_retrieval(state: AgentState) -> dict:
+    """
+    Pure Python confidence checks on retrieved results before calling Gemini.
+
+    Four checks (all zero RPM):
+      1. Chunk count  — at least one text chunk must be retrieved.
+      2. Top score    — highest fused score must exceed MIN_TOP_SCORE.
+      3. Term overlap — key query words must appear somewhere in the chunks.
+      4. Source count — at least one source document must be attributed.
+
+    Returns:
+        {
+          "passed":     bool,
+          "confidence": float in [0.0, 1.0],
+          "issues":     list[str]   # empty on pass
+        }
+    """
+    text_results = state.get("text_results", [])
+    query = (state.get("refined_query") or state.get("query", "")).lower()
+    issues = []
+
+    # --- Check 1: At least one chunk retrieved --------------------------------
+    if not text_results:
+        issues.append("no text chunks retrieved")
+        log.warning("[CONFIDENCE] Check 1 FAIL — no text chunks retrieved")
+    else:
+        log.info(f"[CONFIDENCE] Check 1 PASS — {len(text_results)} chunks retrieved")
+
+    # --- Check 2: Top fused score above threshold ----------------------------
+    top_score = 0.0
+    if text_results:
+        top_score = max(
+            r.get("fused_score", r.get("score", 0.0))
+            for r in text_results
+        )
+        if top_score < MIN_TOP_SCORE:
+            issues.append(
+                f"top retrieval score {top_score:.4f} below threshold {MIN_TOP_SCORE}"
+            )
+            log.warning(
+                f"[CONFIDENCE] Check 2 FAIL — top score {top_score:.4f} "
+                f"< threshold {MIN_TOP_SCORE}"
+            )
+        else:
+            log.info(f"[CONFIDENCE] Check 2 PASS — top score {top_score:.4f}")
+
+    # --- Check 3: Query term overlap in retrieved text -----------------------
+    if text_results and query:
+        # Extract meaningful query terms (length > 2, skip stopwords)
+        stopwords = {"the", "and", "for", "how", "what", "with", "are",
+                     "can", "do", "is", "in", "on", "of", "to", "a", "an"}
+        query_terms = [
+            w for w in query.split()
+            if len(w) > 2 and w not in stopwords
+        ]
+
+        if query_terms:
+            all_chunk_text = " ".join(
+                r.get("text", "").lower() for r in text_results
+            )
+            matched = [t for t in query_terms if t in all_chunk_text]
+            overlap_ratio = len(matched) / len(query_terms)
+
+            if overlap_ratio < 0.3:  # fewer than 30% of terms found
+                issues.append(
+                    f"low query-term overlap ({len(matched)}/{len(query_terms)} terms found)"
+                )
+                log.warning(
+                    f"[CONFIDENCE] Check 3 FAIL — only {len(matched)}/{len(query_terms)} "
+                    f"query terms found in chunks"
+                )
+            else:
+                log.info(
+                    f"[CONFIDENCE] Check 3 PASS — "
+                    f"{len(matched)}/{len(query_terms)} query terms found"
+                )
+
+    # --- Check 4: At least one source attributed ----------------------------
+    all_sources = set()
+    for r in text_results:
+        src = r.get("source_document", "")
+        if src:
+            all_sources.add(src)
+    for r in state.get("image_results", []):
+        src = r.get("source_document", "")
+        if src:
+            all_sources.add(src)
+
+    if not all_sources:
+        issues.append("no source documents attributed")
+        log.warning("[CONFIDENCE] Check 4 FAIL — no sources found")
+    else:
+        log.info(f"[CONFIDENCE] Check 4 PASS — sources: {list(all_sources)}")
+
+    # --- Compute confidence score -------------------------------------------
+    # Simple linear score: each check is worth 0.25
+    passed_checks = 4 - len(issues)
+    confidence = round(passed_checks / 4.0, 2)
+    passed = len(issues) == 0
+
+    if passed:
+        log.info(f"[CONFIDENCE] All checks passed — confidence={confidence}")
+    else:
+        log.warning(
+            f"[CONFIDENCE] {len(issues)} check(s) failed — "
+            f"confidence={confidence} — issues: {issues}"
+        )
+
+    return {
+        "passed": passed,
+        "confidence": confidence,
+        "issues": issues,
+        "sources": list(all_sources),
+    }
+
+
+# =============================================================================
+#  Phase 2: Answer Synthesis
 # =============================================================================
 
 def _build_synthesis_prompt(state: AgentState) -> str:
@@ -178,71 +281,11 @@ def _synthesize_answer(state: AgentState) -> str:
         ],
         temperature=0.3,   # Slightly creative for natural answers
         use_cache=False,   # Answers should always be freshly generated
+        model_name=SYNTHESIS_MODEL,
     )
 
 
-# =============================================================================
-#  Phase 2: Self-Verification
-# =============================================================================
 
-def _build_verification_prompt(state: AgentState, answer: str) -> str:
-    """Build the verification prompt with the original query and generated answer."""
-    query = state.get("refined_query") or state["query"]
-
-    # Summarise what context was available
-    text_count = len(state.get("text_results", []))
-    image_count = len(state.get("image_results", []))
-    sources = state.get("sources", [])
-
-    return (
-        f"ORIGINAL USER QUESTION: {query}\n\n"
-        f"CONTEXT AVAILABLE: {text_count} text chunks, {image_count} images\n"
-        f"SOURCES USED: {', '.join(sources) if sources else 'none'}\n\n"
-        f"GENERATED ANSWER:\n{answer}\n\n"
-        f"Evaluate this answer and respond with the JSON object."
-    )
-
-
-def _verify_answer(state: AgentState, answer: str) -> dict:
-    """
-    Run self-verification on the generated answer.
-
-    Returns dict with keys: passed, reason, missing_info, refined_query
-    """
-    prompt = _build_verification_prompt(state, answer)
-
-    raw = invoke_with_rate_limit(
-        messages=[
-            {"role": "system", "content": VERIFICATION_SYSTEM_PROMPT},
-            {"role": "user", "content": prompt},
-        ],
-        temperature=0.0,   # Deterministic verification
-        use_cache=False,   # Verification must be fresh
-    )
-
-    # Bulletproof JSON extraction from anywhere in the LLM response
-    try:
-        match = re.search(r"\{.*\}", raw, re.DOTALL)
-        if not match:
-            raise ValueError("No JSON object block found in response")
-        
-        json_str = match.group(0)
-        result = json.loads(json_str)
-        
-        return {
-            "passed": bool(result.get("passed", True)),
-            "reason": str(result.get("reason", "")),
-            "missing_info": str(result.get("missing_info", "")),
-            "refined_query": str(result.get("refined_query", "")),
-        }
-    except Exception as e:
-        log.warning(f"[SYNTH] Verification JSON parse failed: {e}. Raw response: {raw}")
-        return {
-            "passed": True,
-            "reason": f"Verification parse failed ({type(e).__name__}) — defaulting to pass",
-            "missing_info": "",
-            "refined_query": "",
-        }
 
 
 # =============================================================================
@@ -251,90 +294,50 @@ def _verify_answer(state: AgentState, answer: str) -> dict:
 
 def synthesis_agent(state: AgentState) -> dict:
     """
-    LangGraph node function: Synthesize answer and verify quality.
+    LangGraph node function: Validate retrieval confidence, then synthesize answer.
 
-    Reads:  state["query"], state["refined_query"], state["text_results"],
-            state["image_results"], state["session_history"],
-            state["verification_feedback"], state["loopback_count"],
-            state["sources"]
-    Writes: state["final_answer"], state["verification_passed"],
-            state["verification_feedback"], state["refined_query"],
-            state["loopback_count"], state["sources"]
+    Phase 1 (Python Confidence): Runs 4 deterministic checks on retrieved
+                                 results — zero Gemini calls, zero RPM cost.
+    Phase 2 (Synthesis):        Single Gemini call to generate the answer.
+                                 Always routes to END — no loopback.
+
+    Reads:  state["query"], state["text_results"], state["image_results"],
+            state["session_history"], state["image_summary"], state["components"]
+    Writes: state["final_answer"], state["sources"],
+            state["verification_passed"], state["confidence_score"],
+            state["confidence_issues"]
     """
     active_query = state.get("refined_query") or state["query"]
-    current_loopback = state.get("loopback_count", 0)
+    log.info(f"[SYNTH] Starting synthesis for: '{active_query}'")
 
-    log.info(
-        f"[SYNTH] Synthesizing answer for: '{active_query}' "
-        f"(loopback {current_loopback}/{MAX_LOOPBACKS})"
-    )
+    # Phase 1: Python retrieval confidence validation (zero RPM)
+    confidence = validate_retrieval(state)
 
-    # Phase 1: Generate answer
+    # Phase 2: Synthesize answer with a single Gemini call
     try:
         answer = _synthesize_answer(state)
     except Exception as e:
         log.exception(f"[SYNTH] Answer generation failed: {e}")
         return {
             "final_answer": "I'm sorry, I encountered an error generating the answer. Please try again.",
-            "verification_passed": True,  # Don't loopback on LLM errors
+            "sources": confidence["sources"],
+            "verification_passed": True,   # Always END, never loopback
+            "confidence_score": confidence["confidence"],
+            "confidence_issues": confidence["issues"],
         }
 
-    log.info(f"[SYNTH] Answer generated ({len(answer)} chars)")
+    log.info(
+        f"[SYNTH] Answer generated ({len(answer)} chars) — "
+        f"confidence={confidence['confidence']}"
+    )
 
-    # Extract source documents from text_results for citation tracking
-    result_sources = set()
-    for r in state.get("text_results", []):
-        src = r.get("source_document", "")
-        if src:
-            result_sources.add(src)
-    for r in state.get("image_results", []):
-        src = r.get("source_document", "")
-        if src:
-            result_sources.add(src)
-    all_sources = list(result_sources)
-
-    # Phase 2: Self-verification
-    try:
-        verification = _verify_answer(state, answer)
-    except Exception as e:
-        log.exception(f"[SYNTH] Verification failed: {e}")
-        verification = {"passed": True, "reason": "Verification error", "missing_info": "", "refined_query": ""}
-
-    if verification["passed"]:
-        log.info(f"[SYNTH] Verification PASSED: {verification['reason']}")
-        return {
-            "final_answer": answer,
-            "sources": all_sources,
-            "verification_passed": True,
-            "verification_feedback": None,
-        }
-    else:
-        log.warning(f"[SYNTH] Verification FAILED: {verification['reason']}")
-        log.warning(f"[SYNTH] Missing: {verification['missing_info']}")
-
-        new_loopback = current_loopback + 1
-
-        if new_loopback >= MAX_LOOPBACKS:
-            log.warning(
-                f"[SYNTH] Max loopbacks ({MAX_LOOPBACKS}) reached. "
-                f"Returning best available answer."
-            )
-            return {
-                "final_answer": answer,
-                "sources": all_sources,
-                "verification_passed": True,  # Force exit
-                "verification_feedback": None,
-                "loopback_count": new_loopback,
-            }
-
-        return {
-            "final_answer": answer,
-            "sources": all_sources,
-            "verification_passed": False,
-            "verification_feedback": verification["reason"],
-            "refined_query": verification["refined_query"] or active_query,
-            "loopback_count": new_loopback,
-        }
+    return {
+        "final_answer": answer,
+        "sources": confidence["sources"],
+        "verification_passed": True,   # Always route to END — no loopback
+        "confidence_score": confidence["confidence"],
+        "confidence_issues": confidence["issues"],
+    }
 
 
 # ─── Standalone Test ─────────────────────────────────────────────────────
@@ -370,7 +373,6 @@ if __name__ == "__main__":
             "score": 0.72,
         },
     ]
-    state["sources"] = ["A000066-datasheet.pdf", "A000005-datasheet.pdf"]
 
     print("\n" + "=" * 60)
     print("  SYNTHESIS AGENT — Standalone Test")
@@ -378,9 +380,12 @@ if __name__ == "__main__":
 
     result = synthesis_agent(state)
 
-    print(f"\n  Verification: {'PASSED' if result['verification_passed'] else 'FAILED'}")
-    if result.get("verification_feedback"):
-        print(f"  Feedback: {result['verification_feedback']}")
+    print(f"\n  Confidence Score:  {result.get('confidence_score', 'N/A')}")
+    issues = result.get('confidence_issues', [])
+    if issues:
+        print(f"  Confidence Issues: {issues}")
+    else:
+        print(f"  Confidence Issues: none")
     print(f"  Sources: {result.get('sources', [])}")
     print(f"\n  --- ANSWER ---")
     print(f"  {result['final_answer']}")

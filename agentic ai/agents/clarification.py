@@ -10,6 +10,7 @@ Usage (standalone test):
   python agents/clarification.py
 """
 
+import os
 import sys
 import logging
 from pathlib import Path
@@ -28,6 +29,8 @@ logging.basicConfig(
     datefmt="%H:%M:%S",
 )
 log = logging.getLogger(__name__)
+
+CLARIFICATION_MODEL = os.getenv("CLARIFICATION_MODEL", "gemini-2.5-flash-lite")
 
 # --- Clarification Prompt ----------------------------------------------------
 CLARIFICATION_SYSTEM_PROMPT = """\
@@ -99,6 +102,7 @@ def clarification_agent(state: AgentState) -> dict:
         ],
         temperature=0.3,  # Slight creativity for natural-sounding questions
         use_cache=False,  # Clarifications should be fresh each time
+        model_name=CLARIFICATION_MODEL,
     )
 
     log.info(f"[CLARIFY] Generated: '{question}'")
