@@ -33,3 +33,6 @@ class ChatResponse(BaseModel):
     sources: List[str] = Field(default_factory=list)
     cache_hit: bool = False                            # True if served from cache
     cached_at: Optional[float] = None                  # Unix timestamp when cached
+    coverage_found: bool = True
+    offer_global_search: bool = False
+    global_search_requested: bool = False

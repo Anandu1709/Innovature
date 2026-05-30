@@ -28,6 +28,7 @@ import os
 import sys
 import json
 import re
+import hashlib
 import logging
 from pathlib import Path
 
@@ -52,6 +53,7 @@ log = logging.getLogger(__name__)
 
 # Use the same model configured in .env
 VISION_MODEL = os.getenv("VISION_MODEL", "gemini-2.5-flash")
+VISION_CACHE_MAX_SIZE = 100
 
 # --- Singleton Gemini client -------------------------------------------------
 _genai_model = None
@@ -72,6 +74,16 @@ def _get_genai_model():
         log.info(f"[VISION] Gemini model loaded: {VISION_MODEL}")
 
     return _genai_model
+
+
+# --- Image Hash Cache --------------------------------------------------------
+_vision_cache: dict[str, dict] = {}
+
+
+def _get_image_hash(image_path: str) -> str:
+    """Compute SHA-256 hash of an image file for cache keying."""
+    with open(image_path, "rb") as f:
+        return hashlib.sha256(f.read()).hexdigest()
 
 
 # --- Prompt ------------------------------------------------------------------
@@ -110,7 +122,11 @@ RULES:
 
 def _analyze_image(image_path: str, query: str = "") -> dict:
     """
-    Send image to Gemini for structured analysis.
+    Send image to Gemini for structured analysis, with SHA-256 cache.
+
+    The cache is keyed on the image file hash only (not query), because
+    the structural analysis (components, observations, domain, intent)
+    is the same regardless of the user's question.
 
     Args:
         image_path: Path to the image file on disk.
@@ -119,6 +135,18 @@ def _analyze_image(image_path: str, query: str = "") -> dict:
     Returns:
         Parsed dict matching the vision output schema.
     """
+    # --- Cache check (keyed on image content hash) ---------------------------
+    image_hash = _get_image_hash(image_path)
+    if image_hash in _vision_cache:
+        log.info(
+            f"[VISION] Cache HIT (hash={image_hash[:12]}…) — "
+            f"skipping Gemini call"
+        )
+        return _vision_cache[image_hash]
+
+    log.info(f"[VISION] Cache MISS (hash={image_hash[:12]}…) — calling Gemini")
+
+    # --- Gemini call ---------------------------------------------------------
     model = _get_genai_model()
 
     img = Image.open(image_path)
@@ -134,7 +162,19 @@ def _analyze_image(image_path: str, query: str = "") -> dict:
 
     log.info(f"[VISION] Raw response length: {len(raw_text)} chars")
 
-    return _parse_vision_response(raw_text)
+    result = _parse_vision_response(raw_text)
+
+    # --- Store in cache (with size cap) --------------------------------------
+    if len(_vision_cache) >= VISION_CACHE_MAX_SIZE:
+        oldest_key = next(iter(_vision_cache))
+        del _vision_cache[oldest_key]
+    _vision_cache[image_hash] = result
+    log.info(
+        f"[VISION] Cached analysis (hash={image_hash[:12]}…, "
+        f"cache_size={len(_vision_cache)})"
+    )
+
+    return result
 
 
 def _parse_vision_response(raw_text: str) -> dict:

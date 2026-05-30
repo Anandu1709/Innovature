@@ -60,10 +60,14 @@ log = logging.getLogger(__name__)
 
 def route_by_intent(state: AgentState) -> str:
     """
-    Route from context_router based on classified intent.
+    Route from context_router based on classified intent or search fallback request.
 
     Returns the name of the next node to execute.
     """
+    if state.get("global_search_requested"):
+        log.info("[GRAPH] Global search fallback requested → routing to general_response")
+        return "general_response"
+
     intent = state.get("intent", "text")
     log.info(f"[GRAPH] Routing by intent: '{intent}'")
 
@@ -187,8 +191,6 @@ def build_graph() -> StateGraph:
     # From enrichment: enter the existing retrieval pipeline
     graph.add_edge("image_context_enrichment", "hybrid_retrieval")
 
-    # --- Existing conditional edges (unchanged) ------------------------------
-
     # From context_router: route by intent
     graph.add_conditional_edges(
         "context_router",
@@ -197,6 +199,7 @@ def build_graph() -> StateGraph:
             "clarification": "clarification",
             "hybrid_retrieval": "hybrid_retrieval",
             "visual_retrieval": "visual_retrieval",
+            "general_response": "general_response",
         },
     )
 

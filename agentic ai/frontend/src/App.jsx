@@ -45,19 +45,21 @@ export default function App() {
   const [showSuggestions, setShowSuggestions] = useState(false);
 
   const handleSend = useCallback(
-    async (query, imageFile = null) => {
-      const userMsg = {
-        id: crypto.randomUUID(),
-        sender: 'user',
-        text: query,
-        inputImageUrl: imageFile ? URL.createObjectURL(imageFile) : null,
-      };
-      setMessages((prev) => [...prev, userMsg]);
+    async (query, imageFile = null, globalSearchRequested = false) => {
+      if (!globalSearchRequested) {
+        const userMsg = {
+          id: crypto.randomUUID(),
+          sender: 'user',
+          text: query,
+          inputImageUrl: imageFile ? URL.createObjectURL(imageFile) : null,
+        };
+        setMessages((prev) => [...prev, userMsg]);
+      }
       setLoading(true);
       setShowSuggestions(false);
 
       try {
-        const res = await postChat(query, sessionId, imageFile);
+        const res = await postChat(query, sessionId, imageFile, globalSearchRequested);
 
         // Update session ID if server returned a new one
         if (res.session_id && res.session_id !== sessionId) {
@@ -69,11 +71,15 @@ export default function App() {
           id: crypto.randomUUID(),
           sender: 'assistant',
           text: res.answer || '',
+          userQuery: query,
           imageUrl: res.image_url || null,
           imageCaption: res.image_caption || null,
           sources: res.sources || [],
           intent: res.intent || null,
           cacheHit: res.cache_hit || false,
+          coverageFound: res.coverage_found ?? true,
+          offerGlobalSearch: res.offer_global_search ?? false,
+          globalSearchRequested: res.global_search_requested ?? false,
         };
         setMessages((prev) => [...prev, assistantMsg]);
       } catch (err) {
@@ -184,7 +190,7 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <ChatWindow messages={messages} loading={loading} />
+          <ChatWindow messages={messages} loading={loading} onSend={handleSend} />
         )}
       </main>
 

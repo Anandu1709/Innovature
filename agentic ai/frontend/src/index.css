@@ -323,16 +323,131 @@ html, body, #root {
   color: #8e8e8e;
 }
 
+/* ── Citations & Markdown Beautification ────────────────────────── */
+
+.citation-sup {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 14px;
+  height: 14px;
+  background: rgba(16, 163, 127, 0.15);
+  border: 1px solid rgba(16, 163, 127, 0.3);
+  color: #10a37f;
+  font-size: 8.5px;
+  font-weight: 600;
+  border-radius: 50%;
+  margin: 0 2px;
+  vertical-align: super;
+  cursor: pointer;
+  user-select: none;
+  transition: all 0.15s ease-in-out;
+}
+
+.citation-sup:hover,
+.citation-sup.active {
+  background: #10a37f;
+  color: #ffffff;
+  border-color: #10a37f;
+  transform: scale(1.15) translateY(-1px);
+  box-shadow: 0 0 5px rgba(16, 163, 127, 0.4);
+}
+
+.message-paragraph {
+  margin-bottom: 10px;
+  line-height: 1.6;
+}
+
+.message-paragraph:last-child {
+  margin-bottom: 0;
+}
+
+.message-heading {
+  font-size: 14.5px;
+  font-weight: 600;
+  color: #ffffff;
+  margin-top: 16px;
+  margin-bottom: 8px;
+}
+
+.message-heading:first-child {
+  margin-top: 0;
+}
+
+.message-list-bullet,
+.message-list-number {
+  margin-bottom: 12px;
+  padding-left: 20px;
+}
+
+.message-list-bullet li,
+.message-list-number li {
+  margin-bottom: 5px;
+  line-height: 1.5;
+}
+
+.message-list-bullet li::marker {
+  color: #10a37f;
+}
+
+.message-list-number li::marker {
+  color: #10a37f;
+  font-weight: 600;
+}
+
 .source-tag {
   display: inline-flex;
   align-items: center;
   gap: 4px;
-  font-size: 11px;
+  font-size: 9.5px;
   color: #b4b4b4;
   background: #212121;
   border: 1px solid #3f3f3f;
   border-radius: 6px;
-  padding: 3px 8px;
+  padding: 2px 6px;
+  transition: all 0.2s ease;
+}
+
+.source-tag.active {
+  border-color: #10a37f;
+  background: rgba(16, 163, 127, 0.1);
+  color: #ececec;
+  box-shadow: 0 0 6px rgba(16, 163, 127, 0.3);
+  transform: translateY(-1px);
+}
+
+.source-index {
+  color: #10a37f;
+  font-weight: 600;
+  margin-right: 1px;
+}
+
+.source-toggle-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  font-size: 9.5px;
+  font-weight: 500;
+  color: #10a37f;
+  background: rgba(16, 163, 127, 0.08);
+  border: 1px solid rgba(16, 163, 127, 0.18);
+  border-radius: 6px;
+  padding: 2px 6px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.15s ease;
+  outline: none;
+}
+
+.source-toggle-btn:hover {
+  background: rgba(16, 163, 127, 0.18);
+  border-color: rgba(16, 163, 127, 0.35);
+  color: #10a37f;
+  transform: translateY(-1px);
+}
+
+.source-toggle-btn:active {
+  transform: translateY(0);
 }
 
 /* ── Cache Badge ───────────────────────────────────────────────── */
@@ -360,12 +475,35 @@ html, body, #root {
   align-items: center;
   gap: 10px;
   padding: 16px 20px;
-  color: #8e8e8e;
-  font-size: 13px;
+  color: #10a37f;
+  font-size: 13.5px;
+}
+
+.loading-status-text {
+  font-size: 12.5px;
+  color: #a8a8a8;
+  font-family: inherit;
+  font-style: italic;
+  font-weight: 400;
+  display: inline-block;
+  animation: statusFadeIn 0.35s cubic-bezier(0.16, 1, 0.3, 1) forwards;
 }
 
 .spinner {
   animation: spin 1s linear infinite;
+  color: #10a37f;
+  flex-shrink: 0;
+}
+
+@keyframes statusFadeIn {
+  from {
+    opacity: 0;
+    transform: translateY(3px);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0);
+  }
 }
 
 /* ── Input Bar ──────────────────────────────────────────────────── */
@@ -559,4 +697,79 @@ html, body, #root {
   .welcome-title {
     font-size: 18px;
   }
+}
+
+/* ── Search Fallback Card ───────────────────────────────────────── */
+
+.search-fallback-container {
+  margin-top: 14px;
+  padding: 12px 14px;
+  background: rgba(255, 255, 255, 0.03);
+  border: 1px dashed rgba(255, 255, 255, 0.1);
+  border-radius: 8px;
+  display: flex;
+  flex-direction: column;
+  gap: 8px;
+  animation: fadeIn 0.3s ease-out;
+}
+
+.search-fallback-buttons {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+
+.search-fallback-btn {
+  font-size: 11px;
+  font-weight: 600;
+  padding: 6px 14px;
+  border-radius: 6px;
+  cursor: pointer;
+  font-family: inherit;
+  transition: all 0.2s cubic-bezier(0.16, 1, 0.3, 1);
+  outline: none;
+}
+
+/* "Search Web" - Premium White button */
+.search-fallback-btn.primary {
+  background: #ffffff;
+  color: #121212;
+  border: 1px solid #ffffff;
+}
+
+.search-fallback-btn.primary:hover {
+  background: #f0f0f0;
+  border-color: #f0f0f0;
+  transform: translateY(-1px);
+  box-shadow: 0 4px 10px rgba(255, 255, 255, 0.15);
+}
+
+.search-fallback-btn.primary:active {
+  transform: translateY(0);
+}
+
+/* "Cancel" - Translucent light badge */
+.search-fallback-btn.secondary {
+  background: rgba(255, 255, 255, 0.08);
+  color: #d1d1d1;
+  border: 1px solid rgba(255, 255, 255, 0.15);
+}
+
+.search-fallback-btn.secondary:hover {
+  background: rgba(255, 255, 255, 0.18);
+  border-color: rgba(255, 255, 255, 0.28);
+  color: #ffffff;
+  transform: translateY(-1px);
+}
+
+.search-fallback-btn.secondary:active {
+  transform: translateY(0);
+}
+
+.search-fallback-canceled {
+  font-size: 11px;
+  color: #8e8e8e;
+  font-style: italic;
+  padding-left: 2px;
+  animation: fadeIn 0.2s ease;
 }

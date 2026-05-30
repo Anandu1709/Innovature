@@ -151,26 +151,27 @@ class ResponseCache:
         raw = f"{model_name}:{temperature}:{str(messages)}"
         return hashlib.md5(raw.encode()).hexdigest()
 
-    def get(self, messages: list, temperature: float, model_name: str = "") -> str | None:
+    def get(self, messages: list, temperature: float, model_name: str = "", override_key: str = None) -> str | None:
         """Retrieve a cached response, or None on miss."""
         if not self.enabled:
             return None
 
-        key = self._make_key(messages, temperature, model_name)
+        key = override_key or self._make_key(messages, temperature, model_name)
         with self._lock:
             if key in self._cache:
                 self._hits += 1
-                log.debug(f"[LLM] Cache HIT (total hits: {self._hits})")
+                log.info(f"[LLM] Cache HIT (key={key[:8]}… total hits: {self._hits})")
                 return self._cache[key]
             self._misses += 1
+            log.info(f"[LLM] Cache MISS (key={key[:8]}… total misses: {self._misses})")
             return None
 
-    def put(self, messages: list, temperature: float, response: str, model_name: str = ""):
+    def put(self, messages: list, temperature: float, response: str, model_name: str = "", override_key: str = None):
         """Store a response in the cache."""
         if not self.enabled:
             return
 
-        key = self._make_key(messages, temperature, model_name)
+        key = override_key or self._make_key(messages, temperature, model_name)
         with self._lock:
             # Simple LRU: evict oldest when full
             if len(self._cache) >= self._max_size:
@@ -244,6 +245,7 @@ def invoke_with_rate_limit(
     temperature: float = 0.3,
     use_cache: bool = True,
     model_name: str = None,
+    cache_key: str = None,
 ) -> str:
     """
     Invoke the LLM with automatic rate limiting and optional caching.
@@ -257,15 +259,25 @@ def invoke_with_rate_limit(
                      Set False for verification calls where freshness matters.
         model_name:  Optional Gemini model override (e.g. "gemini-2.5-flash-lite").
                      Defaults to the global MODEL_NAME from .env.
+        cache_key:   Optional custom cache key string. When provided, the cache
+                     is keyed on this value (+ model + temperature) instead of
+                     the full messages list. Useful for agents where prompts
+                     vary (e.g. session history) but the core query is the same.
 
     Returns:
         The response content string (stripped).
     """
     effective_model = model_name or MODEL_NAME
 
+    # Build override cache key if a custom cache_key was provided
+    _override = None
+    if cache_key is not None:
+        raw = f"{effective_model}:{temperature}:{cache_key}"
+        _override = hashlib.md5(raw.encode()).hexdigest()
+
     # 1. Check cache
     if use_cache:
-        cached = _response_cache.get(messages, temperature, effective_model)
+        cached = _response_cache.get(messages, temperature, effective_model, override_key=_override)
         if cached is not None:
             return cached
 
@@ -279,7 +291,7 @@ def invoke_with_rate_limit(
 
     # 4. Cache response
     if use_cache:
-        _response_cache.put(messages, temperature, content, effective_model)
+        _response_cache.put(messages, temperature, content, effective_model, override_key=_override)
 
     return content
 

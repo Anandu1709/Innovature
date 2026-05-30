@@ -124,6 +124,7 @@ def context_router(state: AgentState) -> dict:
         temperature=0.0,  # Deterministic classification
         use_cache=True,   # Same query → same intent
         model_name=CONTEXT_ROUTER_MODEL,
+        cache_key=active_query,  # Cache on query text only, ignore session history
     ).lower()
 
     valid_intents = {"text", "visual", "both", "clarify"}

@@ -113,6 +113,9 @@ def _state_to_response(final_state: dict, session_id: str) -> ChatResponse:
         image_url=image_url,
         image_caption=image_caption,
         sources=sources,
+        coverage_found=final_state.get("coverage_found", True),
+        offer_global_search=final_state.get("offer_global_search", False),
+        global_search_requested=final_state.get("global_search_requested", False),
     )
 
 
@@ -167,6 +170,7 @@ async def chat(
     query: str = Form(""),
     session_id: str = Form(""),
     image: UploadFile | None = File(None),
+    global_search_requested: bool = Form(False),
 ):
     """
     Process a user query through the full LangGraph agent pipeline.
@@ -208,8 +212,8 @@ async def chat(
             f"session: {sid} | history: {len(history)} turns"
         )
 
-        # 5. Cache check — only for text-only, first-turn standalone queries
-        if not has_image and not history and query_text:
+        # 5. Cache check — only for text-only, first-turn standalone queries, skip if global search requested
+        if not has_image and not history and query_text and not global_search_requested:
             cached = cache.get(query_text)
             if cached:
                 cached.session_id = sid
@@ -229,6 +233,7 @@ async def chat(
             session_history=history,
             image_path=temp_path,
         )
+        initial_state["global_search_requested"] = global_search_requested
 
         # 7. Invoke graph — sync call, offload to thread
         from api.main import compiled_graph
@@ -243,8 +248,15 @@ async def chat(
         # 8. Transform state → response
         response = _state_to_response(final_state, sid)
 
-        # 9. Cache store — only for text-only, first-turn, non-clarify
-        if not has_image and response.intent != "clarify" and not history and query_text:
+        # 9. Cache store — only for text-only, first-turn, non-clarify, and when RAG coverage is found
+        if (
+            not has_image
+            and response.intent != "clarify"
+            and not history
+            and query_text
+            and response.coverage_found
+            and not global_search_requested
+        ):
             cache.put(query_text, response)
 
         # 10. Update session history (with image context if applicable)

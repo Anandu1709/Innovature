@@ -11,10 +11,11 @@ const api = axios.create({});
  * @param {File|null} imageFile - Optional image file to upload
  * @returns {Promise<object>} ChatResponse from backend
  */
-export async function postChat(query, sessionId, imageFile = null) {
+export async function postChat(query, sessionId, imageFile = null, globalSearchRequested = false) {
   const formData = new FormData();
   formData.append('query', query || '');
   formData.append('session_id', sessionId || '');
+  formData.append('global_search_requested', globalSearchRequested ? 'true' : 'false');
 
   if (imageFile) {
     formData.append('image', imageFile);

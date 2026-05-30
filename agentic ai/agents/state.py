@@ -151,6 +151,15 @@ class AgentState(TypedDict):
     Capped at MAX_LOOPBACKS (3) to prevent infinite loops.
     """
 
+    coverage_found: bool
+    """True if RAG retrieval validates successfully, False otherwise."""
+
+    offer_global_search: bool
+    """True if RAG coverage fails, prompting the UI to offer search fallback."""
+
+    global_search_requested: bool
+    """True if the user clicked Search Web, bypassing RAG to call General Response."""
+
 
 # ── Constants ───────────────────────────────────────────────────────────
 MAX_LOOPBACKS = 1
@@ -211,4 +220,7 @@ def create_initial_state(
         observations=[],
         possible_issues=[],
         domain=None,
+        coverage_found=True,
+        offer_global_search=False,
+        global_search_requested=False,
     )

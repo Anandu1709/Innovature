@@ -298,14 +298,15 @@ def synthesis_agent(state: AgentState) -> dict:
 
     Phase 1 (Python Confidence): Runs 4 deterministic checks on retrieved
                                  results — zero Gemini calls, zero RPM cost.
-    Phase 2 (Synthesis):        Single Gemini call to generate the answer.
-                                 Always routes to END — no loopback.
+    Phase 2 (Synthesis):        Single Gemini call to generate the answer if coverage exists.
+                                 Otherwise offers general web search fallback.
 
     Reads:  state["query"], state["text_results"], state["image_results"],
             state["session_history"], state["image_summary"], state["components"]
     Writes: state["final_answer"], state["sources"],
             state["verification_passed"], state["confidence_score"],
-            state["confidence_issues"]
+            state["confidence_issues"], state["coverage_found"],
+            state["offer_global_search"]
     """
     active_query = state.get("refined_query") or state["query"]
     log.info(f"[SYNTH] Starting synthesis for: '{active_query}'")
@@ -313,7 +314,25 @@ def synthesis_agent(state: AgentState) -> dict:
     # Phase 1: Python retrieval confidence validation (zero RPM)
     confidence = validate_retrieval(state)
 
-    # Phase 2: Synthesize answer with a single Gemini call
+    # If the retrieval fails Python validation checks, trigger global search offer
+    if not confidence["passed"]:
+        log.warning("[SYNTH] Retrieval validation failed — triggering search web fallback")
+        offer_msg = (
+            "I couldn't find information about this topic in my electronics knowledge base.\n\n"
+            "I can search the web and answer this as a general question instead."
+        )
+        return {
+            "final_answer": offer_msg,
+            "sources": [],
+            "verification_passed": True,
+            "confidence_score": confidence["confidence"],
+            "confidence_issues": confidence["issues"],
+            "coverage_found": False,
+            "offer_global_search": True,
+            "global_search_requested": False,
+        }
+
+    # Phase 2: Synthesize answer with a single Gemini call since coverage is found
     try:
         answer = _synthesize_answer(state)
     except Exception as e:
@@ -324,6 +343,9 @@ def synthesis_agent(state: AgentState) -> dict:
             "verification_passed": True,   # Always END, never loopback
             "confidence_score": confidence["confidence"],
             "confidence_issues": confidence["issues"],
+            "coverage_found": True,
+            "offer_global_search": False,
+            "global_search_requested": False,
         }
 
     log.info(
@@ -337,6 +359,9 @@ def synthesis_agent(state: AgentState) -> dict:
         "verification_passed": True,   # Always route to END — no loopback
         "confidence_score": confidence["confidence"],
         "confidence_issues": confidence["issues"],
+        "coverage_found": True,
+        "offer_global_search": False,
+        "global_search_requested": False,
     }
 
 
