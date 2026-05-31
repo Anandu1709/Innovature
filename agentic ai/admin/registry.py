@@ -189,6 +189,35 @@ def get_statistics() -> dict:
                 SUM(CASE WHEN status = 'failed' THEN 1 ELSE 0 END)     AS failed_count
             FROM documents
         """).fetchone()
-        return dict(row)
+        
+        stats = dict(row)
+        
+        # Override total counts by reading the combined JSONL files directly
+        # This captures both local script ingestion and admin page ingestion
+        chunks_file = DATA_DIR / "chunks" / "all_chunks.jsonl"
+        images_file = DATA_DIR / "chunks" / "all_images.jsonl"
+        
+        if chunks_file.exists():
+            with open(chunks_file, 'r', encoding='utf-8') as f:
+                stats['total_chunks'] = sum(1 for _ in f)
+                
+        if images_file.exists():
+            with open(images_file, 'r', encoding='utf-8') as f:
+                stats['total_images'] = sum(1 for _ in f)
+                
+        # Include local raw files in document counts as a band-aid
+        raw_pdfs_dir = DATA_DIR / "raw_pdfs"
+        raw_html_dir = DATA_DIR / "raw_html"
+        
+        local_docs_count = 0
+        if raw_pdfs_dir.exists():
+            local_docs_count += len([f for f in raw_pdfs_dir.iterdir() if f.is_file() and f.suffix.lower() == '.pdf'])
+        if raw_html_dir.exists():
+            local_docs_count += len([f for f in raw_html_dir.iterdir() if f.is_file() and f.suffix.lower() == '.html'])
+            
+        stats['total_documents'] = (stats['total_documents'] or 0) + local_docs_count
+        stats['ready_count'] = (stats['ready_count'] or 0) + local_docs_count
+                
+        return stats
     finally:
         conn.close()

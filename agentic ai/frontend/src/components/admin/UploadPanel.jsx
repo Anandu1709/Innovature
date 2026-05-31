@@ -177,7 +177,7 @@ export default function UploadPanel({ onIngestionTriggered }) {
               ref={fileInputRef}
               onChange={handleFileSelect}
               accept=".pdf"
-              className="hidden"
+              style={{ display: 'none' }}
             />
             <button
               type="submit"
