@@ -120,4 +120,9 @@ def reload_after_change() -> None:
     log.info("[HOT_RELOAD] Starting post-change reload sequence...")
     reload_bm25()
     reload_milvus()
+
+    # Invalidate response cache — new KB data means old answers may be stale
+    from api.cache import bump_kb_version
+    bump_kb_version()
+
     log.info("[HOT_RELOAD] Reload complete — new data is now searchable")

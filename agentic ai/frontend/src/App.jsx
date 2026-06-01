@@ -43,6 +43,7 @@ export default function App() {
   const [messages, setMessages] = useState([]);
   const [sessionId, setSessionId] = useState(getSessionId);
   const [loading, setLoading] = useState(false);
+  const [loadingText, setLoadingText] = useState('Analyzing query...');
   const [showSuggestions, setShowSuggestions] = useState(false);
   const [currentPath, setCurrentPath] = useState(window.location.pathname);
 
@@ -67,37 +68,80 @@ export default function App() {
         setMessages((prev) => [...prev, userMsg]);
       }
       setLoading(true);
+      setLoadingText('Processing request...');
       setShowSuggestions(false);
 
       try {
-        const res = await postChat(query, sessionId, imageFile, globalSearchRequested);
-
-        // Update session ID if server returned a new one
-        if (res.session_id && res.session_id !== sessionId) {
-          setSessionId(res.session_id);
-          sessionStorage.setItem('session_id', res.session_id);
+        const formData = new FormData();
+        formData.append('query', query || '');
+        formData.append('session_id', sessionId || '');
+        formData.append('global_search_requested', globalSearchRequested ? 'true' : 'false');
+        formData.append('stream', 'true');
+        if (imageFile) {
+          formData.append('image', imageFile);
         }
 
-        const assistantMsg = {
-          id: crypto.randomUUID(),
-          sender: 'assistant',
-          text: res.answer || '',
-          userQuery: query,
-          imageUrl: res.image_url || null,
-          imageCaption: res.image_caption || null,
-          sources: res.sources || [],
-          intent: res.intent || null,
-          cacheHit: res.cache_hit || false,
-          coverageFound: res.coverage_found ?? true,
-          offerGlobalSearch: res.offer_global_search ?? false,
-          globalSearchRequested: res.global_search_requested ?? false,
-        };
-        setMessages((prev) => [...prev, assistantMsg]);
+        const response = await fetch('/chat', {
+          method: 'POST',
+          body: formData,
+        });
+
+        if (!response.ok) {
+          const errData = await response.json().catch(() => ({}));
+          throw new Error(errData.detail || `Server error: ${response.status}`);
+        }
+
+        const reader = response.body.getReader();
+        const decoder = new TextDecoder();
+        let buffer = '';
+
+        while (true) {
+          const { value, done } = await reader.read();
+          if (done) break;
+
+          buffer += decoder.decode(value, { stream: true });
+          const lines = buffer.split('\n\n');
+          buffer = lines.pop(); // Keep remaining incomplete line
+
+          for (const line of lines) {
+            const trimmed = line.trim();
+            if (trimmed.startsWith('data: ')) {
+              const payload = JSON.parse(trimmed.substring(6));
+              if (payload.type === 'status') {
+                setLoadingText(payload.text);
+              } else if (payload.type === 'result') {
+                const res = payload.data;
+                if (res.session_id && res.session_id !== sessionId) {
+                  setSessionId(res.session_id);
+                  sessionStorage.setItem('session_id', res.session_id);
+                }
+
+                const assistantMsg = {
+                  id: crypto.randomUUID(),
+                  sender: 'assistant',
+                  text: res.answer || '',
+                  userQuery: query,
+                  imageUrl: res.image_url || null,
+                  imageCaption: res.image_caption || null,
+                  sources: res.sources || [],
+                  intent: res.intent || null,
+                  cacheHit: res.cache_hit || false,
+                  coverageFound: res.coverage_found ?? true,
+                  offerGlobalSearch: res.offer_global_search ?? false,
+                  globalSearchRequested: res.global_search_requested ?? false,
+                };
+                setMessages((prev) => [...prev, assistantMsg]);
+              } else if (payload.type === 'error') {
+                throw new Error(payload.detail || 'Stream processing failed');
+              }
+            }
+          }
+        }
       } catch (err) {
         const errorMsg = {
           id: crypto.randomUUID(),
           sender: 'assistant',
-          text: `Error: ${err.response?.data?.detail || err.message}`,
+          text: `Error: ${err.message}`,
         };
         setMessages((prev) => [...prev, errorMsg]);
       } finally {
@@ -224,7 +268,7 @@ export default function App() {
             </div>
           </div>
         ) : (
-          <ChatWindow messages={messages} loading={loading} onSend={handleSend} />
+          <ChatWindow messages={messages} loading={loading} loadingText={loadingText} onSend={handleSend} />
         )}
       </main>
 

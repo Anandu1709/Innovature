@@ -2,6 +2,18 @@ import axios from 'axios';
 
 const api = axios.create({});
 
+// Automatically attach admin secret key if present in localStorage
+api.interceptors.request.use(
+  (config) => {
+    const secret = localStorage.getItem('admin_secret_key');
+    if (secret) {
+      config.headers['X-Admin-Secret-Key'] = secret;
+    }
+    return config;
+  },
+  (err) => Promise.reject(err)
+);
+
 /**
  * Send a chat query to the backend.
  * Supports text-only, image-only, and image+text via multipart/form-data.

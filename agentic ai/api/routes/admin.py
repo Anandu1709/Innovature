@@ -14,7 +14,7 @@ import os
 import shutil
 import logging
 from pathlib import Path
-from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks, HTTPException
+from fastapi import APIRouter, UploadFile, File, Form, BackgroundTasks, HTTPException, Depends, Header
 from pydantic import BaseModel, HttpUrl
 
 from admin.registry import (
@@ -33,7 +33,15 @@ from admin.ingestion_service import (
 
 log = logging.getLogger(__name__)
 
-router = APIRouter(prefix="/api/admin", tags=["admin"])
+def verify_admin_key(x_admin_secret_key: str | None = Header(None, alias="X-Admin-Secret-Key", description="Admin Secret Key")):
+    """Verify the provided Admin Secret Key against the environment variable."""
+    expected_secret = os.getenv("ADMIN_SECRET_KEY", "default_secret_key")
+    if not x_admin_secret_key:
+        raise HTTPException(status_code=401, detail="Admin secret key is missing")
+    if x_admin_secret_key != expected_secret:
+        raise HTTPException(status_code=403, detail="Invalid admin secret key")
+
+router = APIRouter(prefix="/api/admin", tags=["admin"], dependencies=[Depends(verify_admin_key)])
 
 # --- Paths -------------------------------------------------------------------
 PROJECT_ROOT = Path(__file__).resolve().parent.parent.parent
@@ -123,6 +131,20 @@ async def get_db_statistics():
         log.error(f"[API_ADMIN] Failed to get statistics: {e}")
         raise HTTPException(status_code=500, detail=str(e))
 
+
+@router.post("/cache/clear")
+async def clear_response_cache():
+    """Manually clear all cached chat responses. Useful during testing."""
+    from api import cache
+    removed = cache.clear()
+    return {"cleared": removed, "message": f"Removed {removed} cached entries"}
+
+
+@router.get("/cache/stats")
+async def get_cache_stats():
+    """Return response cache statistics including KB version."""
+    from api import cache
+    return cache.stats()
 
 @router.post("/upload/pdf")
 async def upload_pdf_document(

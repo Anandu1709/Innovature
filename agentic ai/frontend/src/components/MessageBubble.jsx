@@ -260,12 +260,6 @@ export default function MessageBubble({ message, onSend }) {
           )}
         </div>
 
-        {message.cacheHit && (
-          <div className="cache-badge">
-            <Zap size={11} />
-            <span>Cached</span>
-          </div>
-        )}
 
         {message.imageUrl && (
           <div className="message-image-container">
