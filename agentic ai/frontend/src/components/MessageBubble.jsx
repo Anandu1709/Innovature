@@ -1,5 +1,5 @@
 import { useState } from 'react';
-import { User, Bot, ExternalLink, Zap } from 'lucide-react';
+import { User, Bot, ExternalLink, Zap, Download } from 'lucide-react';
 
 // --- Inline Token Parser for Bold & Citations -------------------------------
 function parseInline(text, sources) {
@@ -234,6 +234,29 @@ export default function MessageBubble({ message, onSend }) {
     }, 2500);
   };
 
+  const handleDownload = async () => {
+    try {
+      const response = await fetch(message.imageUrl);
+      const blob = await response.blob();
+      const url = window.URL.createObjectURL(blob);
+      const a = document.createElement('a');
+      a.href = url;
+      const filename = message.imageUrl.split('/').pop() || 'technical-diagram.png';
+      a.download = filename;
+      document.body.appendChild(a);
+      a.click();
+      document.body.removeChild(a);
+      window.URL.revokeObjectURL(url);
+    } catch (err) {
+      console.error('Failed to download image:', err);
+      const a = document.createElement('a');
+      a.href = message.imageUrl;
+      a.target = '_blank';
+      a.download = '';
+      a.click();
+    }
+  };
+
   return (
     <div className={`message-bubble ${isUser ? 'user' : 'assistant'}`}>
       <div className="message-avatar">
@@ -263,6 +286,14 @@ export default function MessageBubble({ message, onSend }) {
 
         {message.imageUrl && (
           <div className="message-image-container">
+            <button
+              className="image-download-btn"
+              onClick={handleDownload}
+              aria-label="Download image"
+              title="Download image"
+            >
+              <Download size={16} />
+            </button>
             <img
               src={message.imageUrl}
               alt={message.imageCaption || 'Technical diagram'}

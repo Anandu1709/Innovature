@@ -162,11 +162,21 @@ async def _save_temp_image(image: UploadFile) -> str:
     return temp_path
 
 
-def _reconstruct_state(initial_state: dict, output_list: list) -> dict:
+def _reconstruct_state(initial_state: dict, output_val) -> dict:
     """
-    Reconstruct the final state from a list of LangGraph stream updates.
+    Reconstruct the final state from LangGraph stream updates (either a list of updates
+    or a single updates dictionary).
     """
     state = deepcopy(initial_state)
+    
+    if isinstance(output_val, dict):
+        output_list = [output_val]
+    elif isinstance(output_val, list):
+        output_list = output_val
+    else:
+        log.warning(f"[RECONSTRUCT] Unexpected output type: {type(output_val)}")
+        return state
+
     for item in output_list:
         if not isinstance(item, dict):
             continue
@@ -194,6 +204,11 @@ NODE_STATUS_MAPPINGS = {
         "Understanding your question...",
         "Analyzing the request context...",
         "Determining the best processing path...",
+    ],
+    "query_rewriter": [
+        "Refining your question...",
+        "Resolving context from conversation...",
+        "Preparing search query...",
     ],
     "hybrid_retrieval": [
         "Searching the knowledge base...",
@@ -369,6 +384,7 @@ async def chat(
             async def event_generator():
                 try:
                     active_nodes = set()
+                    stream_chunks = []
                     async for event in compiled_graph.astream_events(initial_state, version="v1"):
                         event_type = event.get("event")
                         node_name = event.get("name")
@@ -384,18 +400,16 @@ async def chat(
                             status_text = random.choice(variants)
                             yield f"data: {json.dumps({'type': 'status', 'text': status_text})}\n\n"
 
+                        # Accumulate stream chunks to reconstruct final state correctly
+                        elif event_type == "on_chain_stream" and node_name == "LangGraph":
+                            chunk = event.get("data", {}).get("chunk")
+                            if chunk:
+                                stream_chunks.append(chunk)
+
                         # Catch graph execution end
                         elif event_type == "on_chain_end" and node_name == "LangGraph":
                             output_val = event["data"]["output"]
-                            if isinstance(output_val, list):
-                                final_state = _reconstruct_state(initial_state, output_val)
-                            elif isinstance(output_val, dict):
-                                final_state = output_val
-                            else:
-                                raise TypeError(
-                                    f"Unexpected LangGraph output type: {type(output_val).__name__}. "
-                                    f"Value snippet: {str(output_val)[:300]}"
-                                )
+                            final_state = _reconstruct_state(initial_state, stream_chunks or output_val)
                             response = _state_to_response(final_state, sid)
 
                             # Cache store — standalone, non-clarify queries with RAG coverage

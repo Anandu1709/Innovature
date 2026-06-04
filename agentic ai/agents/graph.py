@@ -37,6 +37,7 @@ from agents.clarification import clarification_agent
 from agents.hybrid_retrieval import hybrid_retrieval_agent
 from agents.visual_retrieval import visual_retrieval_agent
 from agents.synthesis import synthesis_agent
+from agents.query_rewriter import query_rewriter
 
 # New agents for image input support
 from agents.input_router import input_router_node, route_from_input
@@ -73,11 +74,25 @@ def route_by_intent(state: AgentState) -> str:
 
     if intent == "clarify":
         return "clarification"
-    elif intent == "visual":
+    else:  # text, visual, both → all go through query_rewriter first
+        return "query_rewriter"
+
+
+def route_after_rewriter(state: AgentState) -> str:
+    """
+    Route from query_rewriter to the appropriate retrieval agent.
+
+    Returns:
+        'visual_retrieval'  — intent is 'visual'
+        'hybrid_retrieval'  — intent is 'text' or 'both'
+    """
+    intent = state.get("intent", "text")
+
+    if intent == "visual":
+        log.info("[GRAPH] Rewriter → visual_retrieval")
         return "visual_retrieval"
-    elif intent == "both":
-        return "hybrid_retrieval"  # → then visual_retrieval → synthesis
-    else:  # "text" or fallback
+    else:
+        log.info(f"[GRAPH] Rewriter → hybrid_retrieval (intent='{intent}')")
         return "hybrid_retrieval"
 
 
@@ -154,6 +169,7 @@ def build_graph() -> StateGraph:
     # Existing nodes (unchanged)
     graph.add_node("context_router", context_router)
     graph.add_node("clarification", clarification_agent)
+    graph.add_node("query_rewriter", query_rewriter)
     graph.add_node("hybrid_retrieval", hybrid_retrieval_agent)
     graph.add_node("visual_retrieval", visual_retrieval_agent)
     graph.add_node("synthesis", synthesis_agent)
@@ -197,9 +213,18 @@ def build_graph() -> StateGraph:
         route_by_intent,
         {
             "clarification": "clarification",
+            "query_rewriter": "query_rewriter",
+            "general_response": "general_response",
+        },
+    )
+
+    # From query_rewriter: route to appropriate retrieval agent
+    graph.add_conditional_edges(
+        "query_rewriter",
+        route_after_rewriter,
+        {
             "hybrid_retrieval": "hybrid_retrieval",
             "visual_retrieval": "visual_retrieval",
-            "general_response": "general_response",
         },
     )
 
